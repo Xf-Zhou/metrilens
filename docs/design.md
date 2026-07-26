@@ -230,7 +230,7 @@ purgeableBytes = purgeable_count * pageSize
 #### 能力与拒绝规则
 
 - 能力探测分别记录：`hardwarePresent`、`fieldPresent`、`decoderSupported`，不能合并成一个布尔值。
-- 未识别的键路径、CF 类型、单位或量级一律返回 `unavailable(.unsupportedEncoding)`，不得根据数值大小猜单位。
+- 未识别的键路径、CF 类型、单位或量级一律返回 `unsupported(.unsupportedEncoding)`，不得根据数值大小猜单位。该状态停止常规定时读取，只在唤醒或硬件拓扑变化后重新探测。
 - `BatteryTemperatureProvider` 维护独立的 `pendingCandidate(value, firstSeenAt, expiresAt)`，候选 TTL 为 `max(120 秒, 2 × 当前有效温度周期 + 5 秒)`。
 - 当前温度在 120 秒内相对最后有效样本跳变超过 15°C 时，拒绝该样本并创建候选值。
 - 候选存在时，下一次有效读取若与候选相差不超过 2°C，则确认新水平；否则用最新读数替换候选并重新开始 TTL。候选存在期间不能绕过此规则直接接受新值。
@@ -348,8 +348,8 @@ AppDelegate
 1. 每次稳态性能测试使用全新进程，先暖机 60 秒。
 2. CPU、RSS 和 wakeups 连续测量 10 分钟，共运行 3 次，报告每次值及中位数。
 3. 使用 Release 配置，不连接 Xcode debugger，不打开弹窗，不操作 UI。
-4. 低电量模式另跑一次相同协议，验证有效周期和 wakeups。
-5. 性能结果记录测试机型号、macOS 版本、commit、供电状态和用户采样设置。
+4. 保持接入电源，开启低电量模式后另跑一次相同协议，验证有效周期和 wakeups。
+5. 性能门禁仅接受干净工作树；结果记录测试机型号、macOS 版本、commit、Release 可执行文件 SHA-256、供电状态和有效采样设置。启动、标准与低电量结果只有这些身份字段和协议版本完全一致，启动测量每轮前后、稳态测量每个 5 秒采样点、每轮开始/结束与 App 报告均为 AC 供电时才可汇总。
 
 24 小时稳定性协议：
 
@@ -458,14 +458,15 @@ machFailure(code)
 
 ### 8.3 性能测试
 
-- 实施阶段先运行 `xcrun xctrace list templates`，确认本机存在 Time Profiler、Energy Log、Allocations、Leaks 模板。
+- 实施阶段先运行 `xcrun xctrace list templates`，确认本机存在 Time Profiler、Allocations、Leaks 和 System Trace 模板。Xcode 16.4 当前不再列出独立的 Energy Log；若未来工具版本提供则作为补充，不作为 V1 门禁依赖。
 - `scripts/build_local_release.sh` 生成固定路径 `.build/DerivedData/Build/Products/Release/Metrilens.app` 的 arm64 ad-hoc 签名 App，并依次执行 `codesign --verify --deep --strict`、启动、PID 探测和退出 smoke test。
 - 启动门禁的正式名称是“新进程启动到菜单栏就绪”，不是“冷启动”。它允许 macOS 和文件系统已有缓存，但每轮都必须创建新的 Metrilens 进程，不清空系统缓存，也不能复用已运行实例。
 - `scripts/measure_launch.py` 在外部测试进程中使用 monotonic clock 记录起点，随后直接 `posix_spawn` Release 包内的 `Contents/MacOS/Metrilens`，因此计时包含进程创建、dyld、Swift/Objective-C runtime 与 App 初始化。测试进程预先创建 pipe，并通过 `METRILENS_PERF_READY_FD` 传入可继承的写端。
 - `StatusItemController` 创建出非空 `NSStatusItem.button` 后，使用无缓冲 `write(2)` 向 ready pipe 写入一次固定 token。测试进程收到完整 token 的 monotonic 时刻为终点；App 内部计时只能作为诊断，不能用于门禁。
 - 启动测试先确认不存在其他 Metrilens 进程；每轮使用 2 秒 ready 超时，收到 token 后只终止本轮 `posix_spawn` 返回的精确子 PID 并等待退出。连续运行 20 次并计算中位数；已有实例、token 错误、EOF、超时、子进程异常退出、样本不足或中位数超过 300 ms 均返回非零。
-- `scripts/measure_lightweight.sh` 执行第 6 节协议：启动 Release App、记录其精确 PID 和随机 launch token、暖机 60 秒、每 5 秒采样 `%CPU` 与 RSS、运行 10 分钟并输出原始 CSV，共重复 3 次。
-- wakeups 的唯一门禁数据源是 App 对自身 `mach_task_self_` 调用公开 Mach API `task_info(..., TASK_POWER_INFO, ...)` 得到的 `task_power_info_data_t`，不依赖 `powermetrics` 输出格式。暖机结束时记录起始快照，10 分钟窗口结束时记录终止快照，并使用同一个 monotonic clock 记录实际窗口秒数：
+- `scripts/measure_lightweight.sh standard` 执行第 6 节标准协议：先拒绝既有 Metrilens 实例，验证 arm64、接入电源且低电量模式关闭，再启动 Release App、记录其精确 PID 和随机 launch token、暖机 60 秒、每 5 秒采样 `%CPU` 与 RSS、运行 10 分钟并输出原始数据，共重复 3 次。Perf mode 使用独立易失配置，强制菜单栏 CPU、配置周期 1 秒，不读取或改写用户偏好。
+- `scripts/measure_lightweight.sh low-power` 要求保持接入电源且低电量模式已经开启，独立运行一次相同 10 分钟窗口并使用 `≤ 0.25 wakeups/s` 门槛。启动测量在每轮前后、稳态测量在每个 5 秒采样点记录并校验供电环境，禁止中途切换供电后恢复 AC 的结果混入汇总。`finalize` 只有在标准场景、低电量场景、启动门禁和磁盘监控结果全部存在且通过时才生成成功 summary；场景状态不符或结果缺失必须非零退出。
+- wakeups 的唯一门禁数据源是 App 对自身 `mach_task_self_` 调用公开 Mach API `task_info(..., TASK_POWER_INFO, ...)` 得到的 `task_power_info_data_t`，不依赖 `powermetrics` 输出格式。外部脚本在启动 App 前生成一个未来的绝对 monotonic 起点，通过 `METRILENS_PERF_START_UPTIME` 传入；App 的 TaskPowerProbe 和外部 CPU/RSS 采样都等待该共享起点。每次 `task_info` 读取前后都记录 uptime，整个读取区间必须位于对应资源窗口端点的 100 ms 容差内，报告起止时间固定为读取区间中点；不能只比较窗口时长或单个时间戳。磁盘监控在共享起点前完成启动确认，并覆盖到外部窗口结束之后。10 分钟结束后使用实际窗口秒数计算：
 
 ```text
 interruptWakeupsPerSecond =
@@ -475,12 +476,12 @@ interruptWakeupsPerSecond =
 ```
 
 - 第 6 节的 wakeups 阈值只比较 `task_interrupt_wakeups` 的上述平均速率。`task_platform_idle_wakeups`、`task_timer_wakeups_bin_1` 和 `task_timer_wakeups_bin_2` 同时记录为诊断字段，但不参与 V1 门禁。
-- `TaskPowerProbe` 只在 `METRILENS_PERF_MODE=1` 且存在有效 `METRILENS_PERF_REPORT_FD` 时启用；结束后通过继承 pipe 写出带 launch token、进程 PID、两次原始累计值、实际时长和计算结果的固定版本 JSON 行，不写磁盘、不联网。测试脚本只接受自己启动的精确 PID 和 token 对应的报告，避免 PID 复用或串入其他实例。
+- `TaskPowerProbe` 只在 `METRILENS_PERF_MODE=1` 且同时存在有效 `METRILENS_PERF_REPORT_FD`、未来的共享 monotonic 起点时启用；结束后通过继承 pipe 写出共享请求起点、两次读取区间及其中点、launch token、进程 PID、两次原始累计值、实际时长、计算结果，以及窗口开始/结束时的主指标、配置周期、有效周期、低电量模式和供电来源的固定版本 JSON 行，不写磁盘、不联网。测试脚本只接受自己启动的精确 PID 和 token 对应的报告，避免 PID 复用或串入其他实例，并将 pipe 收到的原始字节按轮次单独保存，供汇总结果追溯。
 - `task_info` 返回失败、结构体 count 不足、累计计数回退、算术溢出、时长非正、报告缺失或报告版本未知，都归类为测量设施失败并返回非零，不能当成产品 wakeups 回归。单元测试固定覆盖正常累计差值、计数回退、短结构、Mach 错误、不完整时长、错误 PID/token 和溢出。
-- 网络门禁不再借用 wakeups 工具的输出。`scripts/monitor_runtime.sh` 在完整 10 分钟窗口内监视目标精确 PID 的网络 socket，并配合静态禁用 `URLSession`、`NWConnection` 与 BSD socket 创建调用；发现任一 App 主动连接即失败。诊断工具自身流量不得计入 App。
-- 子进程使用 `scripts/monitor_children.sh` 在完整 10 分钟窗口内每 100 ms 执行一次 `pgrep -P "$METRILENS_PID"`；任意时刻出现子 PID 即失败。再配合静态禁用 `Process/NSTask/popen/system` 的检查，覆盖短时执行路径。
-- 暖机后使用 `fs_usage` 或 Instruments File Activity 覆盖完整 10 分钟窗口；除用户主动修改设置外，Metrilens 任意主动文件写入均失败。测试工具需要的管理员权限不属于 App 权限。
-- `scripts/measure_lightweight.sh` 必须汇总 launch、CPU、RSS、wakeups、网络、子进程、磁盘写入和包体积，把原始数据写入 `/tmp/metrilens-perf/<commit>/`，并输出机器可读 summary。任一硬门禁失败、样本缺失或测量协议版本不识别时返回非零。
+- 网络门禁在完整 10 分钟窗口内由独立线程按 monotonic 固定起点以 95 ms 为目标节拍使用 `lsof` 监视目标精确 PID 的网络 socket；每次执行前检查距上次真实开始时间不得超过 100 ms，调度晚醒不能被下一轮快速执行掩盖。再配合静态禁用 `URLSession`、`NWConnection` 与 BSD socket 创建调用；发现任一 App 主动连接即失败。诊断工具自身流量不得计入 App；`lsof` 缺失、返回异常状态或无法维持 100 ms 上限，都属于测量设施失败，不能按“无网络”通过。
+- 子进程门禁由另一个独立线程按相同 95 ms 目标节拍执行 `pgrep -P "$METRILENS_PID"`，不与 `lsof` 串行；任意相邻两次真实开始时间不得超过 100 ms。任意时刻出现子 PID即失败。`pgrep` 缺失、返回约定以外的状态或无法维持节拍同样属于测量设施失败，不能按“无子进程”通过。再配合静态禁用 `Process/NSTask/popen/system` 的检查，覆盖短时执行路径。
+- 暖机后由脚本通过已缓存的 `sudo -v` 授权启动 `fs_usage`，先确认进程仍在运行，再开始 600 秒 CPU/RSS 窗口；窗口结束时再次要求 `fs_usage` 仍存活，随后等待其带尾部余量正常结束，确保完整包住测量窗口并保存原始日志。启动确认或测量期间即使以状态 0 提前退出，也视为测量设施失败。除用户主动修改设置外，Metrilens 任意主动文件写入均失败。测试工具需要的管理员权限不属于 App 权限。
+- `scripts/measure_lightweight.sh standard` 必须先重新构建固定的 Release 产物；完整门禁拒绝脏工作树，并以 commit、可执行文件 SHA-256、机型、macOS 版本和协议版本作为结果身份。脚本汇总 launch、CPU、RSS、wakeups、网络、子进程、磁盘写入和包体积，把原始数据写入 `/tmp/metrilens-perf/<commit>/`。`finalize` 必须重新读取每轮 JSON、对应原始 task-power 文件和带 SHA-256 的 `fs_usage` 日志，校验固定样本数量、600 秒测量时长及 5 秒上限容差、两次 `task_info` 完整读取区间与资源窗口端点的 100 ms 对齐、上下文、累计计数与计算速率，并从原始样本复算每轮和场景汇总；任一文件缺失、日志被修改、嵌入报告不一致、样本截断、身份不匹配或协议版本不识别时返回非零。
 - 包体积固定使用 MiB：`du -sk` 的结果必须 `<= 10240` KiB。
 - 使用 Allocations/Leaks 和第 6 节 RSS 协议执行 24 小时稳定性测试。
 

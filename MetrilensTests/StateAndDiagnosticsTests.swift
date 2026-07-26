@@ -1,0 +1,226 @@
+import XCTest
+import AppKit
+@testable import Metrilens
+
+final class StateAndDiagnosticsTests: XCTestCase {
+    func testTaskPowerInfoIsAvailableOnCurrentSDKAndMac() throws {
+        guard case let .success(snapshot) = TaskPowerProbe.readCurrentTask() else {
+            return XCTFail("TASK_POWER_INFO is unavailable")
+        }
+        XCTAssertGreaterThanOrEqual(snapshot.interruptWakeups, 0)
+    }
+
+    func testMetricStateTransitionsThroughStaleAndUnavailable() {
+        let machine = MetricStateMachine<Int>()
+        _ = machine.recordSuccess(42, stamp: SampleStamp(wallTime: Date(), uptime: 10))
+
+        guard case let .stale(value, _) = machine.recordFailure(
+            .machFailure(1),
+            nowUptime: 11,
+            failureLimit: 3,
+            ttl: 10
+        ) else {
+            return XCTFail("Expected stale")
+        }
+        XCTAssertEqual(value, 42)
+
+        _ = machine.recordFailure(.machFailure(1), nowUptime: 12, failureLimit: 3, ttl: 10)
+        guard case .unavailable(.machFailure(1)) = machine.recordFailure(
+            .machFailure(1),
+            nowUptime: 13,
+            failureLimit: 3,
+            ttl: 10
+        ) else {
+            return XCTFail("Expected unavailable")
+        }
+    }
+
+    func testFailedStaleValueExpiresWithoutAnotherRead() {
+        let machine = MetricStateMachine<Int>()
+        _ = machine.recordSuccess(42, stamp: SampleStamp(wallTime: Date(), uptime: 10))
+        _ = machine.recordFailure(.machFailure(1), nowUptime: 11, failureLimit: 3, ttl: 10)
+        guard case .unavailable(.machFailure(1)) = machine.expireFailedValueIfNeeded(
+            nowUptime: 20,
+            ttl: 10
+        ) else {
+            return XCTFail("Expected stale value to expire")
+        }
+    }
+
+    func testPausePreservesOnlyFreshCacheAsStale() {
+        let machine = MetricStateMachine<Int>()
+        let stamp = SampleStamp(wallTime: Date(), uptime: 10)
+        _ = machine.recordSuccess(42, stamp: stamp)
+        guard case let .stale(value, _) = machine.preserveFreshValueAsStale(
+            nowUptime: 15,
+            ttl: 10
+        ) else {
+            return XCTFail("Fresh cache should become stale")
+        }
+        XCTAssertEqual(value, 42)
+        guard case .unavailable = machine.expireFailedValueIfNeeded(
+            nowUptime: 20,
+            ttl: 10
+        ) else {
+            return XCTFail("Expired paused cache must be discarded")
+        }
+    }
+
+    func testMetricTextColorMarksOnlyStaleValuesAsSecondary() {
+        let stamp = SampleStamp(wallTime: Date(), uptime: 1)
+        XCTAssertTrue(
+            PopoverController.metricTextColor(
+                MetricState<Double>.stale(35, stamp)
+            ).isEqual(NSColor.secondaryLabelColor)
+        )
+        XCTAssertTrue(
+            PopoverController.metricTextColor(
+                MetricState<Double>.available(35, stamp)
+            ).isEqual(NSColor.labelColor)
+        )
+        XCTAssertTrue(
+            PopoverController.metricTextColor(
+                MetricState<Double>.unavailable(.fieldMissing)
+            ).isEqual(NSColor.labelColor)
+        )
+    }
+
+    func testStatusItemPresentationsMarkAllStalePrimaryMetrics() {
+        let stamp = SampleStamp(wallTime: Date(timeIntervalSince1970: 100), uptime: 100)
+        var snapshot = SystemSnapshot.initial()
+        snapshot.cpu = .stale(CPUMetric(percent: 20), stamp)
+        snapshot.memory = .stale(
+            MemoryMetric(usedBytes: 20, totalBytes: 100, availableBytes: 80, purgeableBytes: 0),
+            stamp
+        )
+        snapshot.batteryTemperature = .stale(35, stamp)
+
+        for metric in PrimaryMetric.allCases {
+            let presentation = StatusItemController.presentation(
+                primaryMetric: metric,
+                snapshot: snapshot
+            )
+            XCTAssertTrue(presentation.title.hasSuffix(" ·"))
+            XCTAssertEqual(presentation.staleStamp, stamp)
+        }
+    }
+
+    func testSettingsExplainTheMemoryProductDefinition() {
+        XCTAssertTrue(PreferencesController.sourceInformation.contains("internal"))
+        XCTAssertTrue(PreferencesController.sourceInformation.contains("wired"))
+        XCTAssertTrue(PreferencesController.sourceInformation.contains("compressor"))
+        XCTAssertTrue(PreferencesController.sourceInformation.contains("活动监视器"))
+    }
+
+    func testSystemEventCoalescerDoesNotExtendWindowForRejectedEvents() {
+        var coalescer = SystemEventCoalescer(window: 2)
+        XCTAssertTrue(coalescer.shouldAccept(at: 100))
+        XCTAssertFalse(coalescer.shouldAccept(at: 101))
+        XCTAssertTrue(coalescer.shouldAccept(at: 102))
+    }
+
+    func testTaskPowerRate() {
+        let start = TaskPowerSnapshot(
+            interruptWakeups: 100,
+            platformIdleWakeups: 5,
+            timerWakeupsBin1: 1,
+            timerWakeupsBin2: 2
+        )
+        let end = TaskPowerSnapshot(
+            interruptWakeups: 220,
+            platformIdleWakeups: 8,
+            timerWakeupsBin1: 4,
+            timerWakeupsBin2: 5
+        )
+        guard case let .success(rate) = TaskPowerProbe.calculateRate(
+            start: start,
+            end: end,
+            elapsed: 100
+        ) else {
+            return XCTFail("Expected rate")
+        }
+        XCTAssertEqual(rate, 1.2, accuracy: 0.0001)
+    }
+
+    func testTaskPowerRequestedStartMustBeFutureAndFinite() {
+        XCTAssertEqual(
+            TaskPowerProbe.validatedRequestedStartUptime("101.5", nowUptime: 100),
+            101.5
+        )
+        XCTAssertNil(
+            TaskPowerProbe.validatedRequestedStartUptime("100", nowUptime: 100)
+        )
+        XCTAssertNil(
+            TaskPowerProbe.validatedRequestedStartUptime("nan", nowUptime: 100)
+        )
+        XCTAssertNil(
+            TaskPowerProbe.validatedRequestedStartUptime(nil, nowUptime: 100)
+        )
+    }
+
+    func testTaskPowerSnapshotReadMustFitInsideEndpointTolerance() {
+        let snapshot = TaskPowerSnapshot(
+            interruptWakeups: 100,
+            platformIdleWakeups: 5,
+            timerWakeupsBin1: 1,
+            timerWakeupsBin2: 2
+        )
+        var validTimes = [100.0, 100.02].makeIterator()
+        guard case let .success(valid) = TaskPowerProbe.readTimedCurrentTask(
+            clock: { validTimes.next()! },
+            reader: { .success(snapshot) }
+        ) else {
+            return XCTFail("Expected timed snapshot")
+        }
+        XCTAssertTrue(
+            TaskPowerProbe.endpointContainsSnapshot(
+                valid,
+                expectedUptime: 100.01
+            )
+        )
+        XCTAssertEqual(valid.midpointUptime, 100.01, accuracy: 0.000_001)
+
+        var overlongTimes = [100.0, 100.2].makeIterator()
+        guard case let .success(overlong) = TaskPowerProbe.readTimedCurrentTask(
+            clock: { overlongTimes.next()! },
+            reader: { .success(snapshot) }
+        ) else {
+            return XCTFail("Expected timed snapshot")
+        }
+        XCTAssertFalse(
+            TaskPowerProbe.endpointContainsSnapshot(
+                overlong,
+                expectedUptime: 100.1
+            )
+        )
+    }
+
+    func testTaskPowerRejectsResetAndInvalidDuration() {
+        let high = TaskPowerSnapshot(
+            interruptWakeups: 200,
+            platformIdleWakeups: 0,
+            timerWakeupsBin1: 0,
+            timerWakeupsBin2: 0
+        )
+        let low = TaskPowerSnapshot(
+            interruptWakeups: 100,
+            platformIdleWakeups: 0,
+            timerWakeupsBin1: 0,
+            timerWakeupsBin2: 0
+        )
+        guard case .failure(.counterReset) = TaskPowerProbe.calculateRate(
+            start: high,
+            end: low,
+            elapsed: 10
+        ) else {
+            return XCTFail("Expected counterReset")
+        }
+        guard case .failure(.invalidDuration) = TaskPowerProbe.calculateRate(
+            start: low,
+            end: high,
+            elapsed: 0
+        ) else {
+            return XCTFail("Expected invalidDuration")
+        }
+    }
+}
