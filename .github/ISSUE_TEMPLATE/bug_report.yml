@@ -1,0 +1,76 @@
+name: 缺陷报告
+description: 报告可重复出现的 Metrilens 问题
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。Metrilens 当前仅支持 Apple Silicon 和 macOS 13 或更高版本。
+
+  - type: input
+    id: version
+    attributes:
+      label: Metrilens 版本
+      description: 可在“关于 Metrilens”中查看。
+      placeholder: 例如 0.2.0（1）
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS 版本与机型
+      placeholder: 例如 macOS 15.5，MacBook Air M4
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 请从启动 App 开始，写出能稳定复现问题的最短步骤。
+      placeholder: |
+        1. 启动 Metrilens
+        2. 点击……
+        3. 观察到……
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 诊断信息
+      description: 可在“关于 Metrilens”中复制。提交前仍请自行检查内容。
+      render: text
+
+  - type: textarea
+    id: attachments
+    attributes:
+      label: 截图或补充信息
+      description: 请先移除截图或日志中的隐私信息。
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我使用的是 Apple Silicon Mac。
+          required: true
+        - label: 我已确认最新版仍能复现。
+          required: true
+        - label: 我没有提交用户名、序列号、路径、IP、凭据等隐私信息。
+          required: true

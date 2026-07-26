@@ -6,6 +6,8 @@
 
 Metrilens 是一个仅支持 Apple Silicon、常驻 macOS 菜单栏的轻量系统状态查看器。
 
+[更新日志](CHANGELOG.md) · [发布与安装验收清单](docs/release-checklist.md)
+
 <p align="center">
   <img src="docs/assets/metrilens-popover.png" width="320" alt="Metrilens 状态弹窗">
 </p>
@@ -136,3 +138,5 @@ sudo -v
 - 在干净工作树的目标提交上运行 `./scripts/release.sh X.Y.Z --publish`。本地脚本只创建并推送 tag；如果 tag 已存在但 Release 尚未完成，则只触发对应的 Actions workflow。
 
 GitHub Actions 是 GitHub Release、草稿和资产的唯一写入者，并按 tag 串行执行，避免本地进程与 workflow 并发覆盖资产。发布脚本会验证源码版本、App 内版本、arm64 单架构、正式图标、App 包关键文件、ZIP 内结构和 SHA-256。相同 App bundle 会得到字节一致的 ZIP。
+
+发布后必须从 GitHub Release 重新下载资产并执行[发布与安装验收清单](docs/release-checklist.md)，不能用本机发布目录中的 ZIP 代替远端产物验收。
