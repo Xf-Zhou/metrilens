@@ -128,7 +128,8 @@ final class ProductQualityTests: XCTestCase {
                 primaryMetric: .cpu,
                 refreshInterval: 2,
                 launchAtLogin: false,
-                showsSparkline: true
+                showsSparkline: true,
+                language: .simplifiedChinese
             ),
             snapshot: snapshot
         )
