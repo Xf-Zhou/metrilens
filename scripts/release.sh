@@ -16,9 +16,10 @@ fi
 tag="v$version"
 if [[ "$mode" == "--publish-from-actions" ]]; then
   if [[ "${GITHUB_ACTIONS:-}" != "true" ||
-        "${GITHUB_REF_TYPE:-}" != "tag" ||
-        "${GITHUB_REF_NAME:-}" != "$tag" ]]; then
-    print -u2 -- "--publish-from-actions must run in GitHub Actions from tag $tag"
+        "${RELEASE_TAG:-}" != "$tag" ||
+        "$(git -C "$repo_dir" rev-parse HEAD)" !=
+          "$(git -C "$repo_dir" rev-list -n 1 "$tag")" ]]; then
+    print -u2 -- "--publish-from-actions must run in GitHub Actions at tag $tag"
     exit 1
   fi
 fi
@@ -38,6 +39,8 @@ xcodebuild \
   -derivedDataPath "$repo_dir/.build/DerivedData" \
   CODE_SIGNING_ALLOWED=NO \
   test
+
+"$repo_dir/scripts/test_localizations.sh"
 
 "$repo_dir/scripts/build_local_release.sh"
 

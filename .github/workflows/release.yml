@@ -23,12 +23,16 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
 
-      - name: Validate tag
+      - name: Validate tag and commit
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
+          test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "$RELEASE_TAG")"
           version="${RELEASE_TAG#v}"
           python3 scripts/release_tools.py check-source "$PWD" "$version"
 
@@ -39,3 +43,12 @@ jobs:
         run: |
           version="${RELEASE_TAG#v}"
           ./scripts/release.sh "$version" --publish-from-actions
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-xcresult-${{ github.run_attempt }}
+          path: .build/DerivedData/Logs/Test/*.xcresult
+          if-no-files-found: warn
+          retention-days: 7

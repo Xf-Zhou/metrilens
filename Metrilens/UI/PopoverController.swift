@@ -7,10 +7,20 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     private let memoryValue = NSTextField(labelWithString: "—")
     private let memorySummaryValue = NSTextField(labelWithString: "—")
     private let batteryValue = NSTextField(labelWithString: "—")
+    private let batteryLevelValue = NSTextField(labelWithString: "—")
+    private let batteryStateValue = NSTextField(labelWithString: "—")
+    private let batteryCyclesValue = NSTextField(labelWithString: "—")
+    private let batteryHealthValue = NSTextField(labelWithString: "—")
     private let batterySessionMaximumValue = NSTextField(labelWithString: "—")
     private let batteryMaximumValue = NSTextField(labelWithString: "—")
+    private let networkDownloadValue = NSTextField(labelWithString: "—")
+    private let networkUploadValue = NSTextField(labelWithString: "—")
+    private let diskUsageValue = NSTextField(labelWithString: "—")
+    private let diskFreeValue = NSTextField(labelWithString: "—")
     private let thermalValue = NSTextField(labelWithString: "—")
+    private let heatDiagnosisValue = NSTextField(wrappingLabelWithString: "—")
     private let updatedValue = NSTextField(labelWithString: "—")
+    private let contentScrollView = NSScrollView()
     private let cpuSparkline = SparklineView()
     private let memorySparkline = SparklineView()
 
@@ -18,9 +28,18 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     private let cpuTitle = NSTextField(labelWithString: "CPU")
     private let memoryTitle = NSTextField(labelWithString: "")
     private let batteryTitle = NSTextField(labelWithString: "")
+    private let batteryLevelTitle = NSTextField(labelWithString: "")
+    private let batteryStateTitle = NSTextField(labelWithString: "")
+    private let batteryCyclesTitle = NSTextField(labelWithString: "")
+    private let batteryHealthTitle = NSTextField(labelWithString: "")
     private let batterySessionMaximumTitle = NSTextField(labelWithString: "")
     private let batteryMaximumTitle = NSTextField(labelWithString: "")
+    private let networkDownloadTitle = NSTextField(labelWithString: "")
+    private let networkUploadTitle = NSTextField(labelWithString: "")
+    private let diskUsageTitle = NSTextField(labelWithString: "")
+    private let diskFreeTitle = NSTextField(labelWithString: "")
     private let thermalTitle = NSTextField(labelWithString: "")
+    private let heatDiagnosisTitle = NSTextField(labelWithString: "")
     private let aboutButton = NSButton()
     private let settingsButton = NSButton()
     private let resetSessionMaximumButton = NSButton()
@@ -29,6 +48,13 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     private let batteryRow = NSStackView()
     private let batterySessionMaximumRow = NSStackView()
     private let batteryMaximumRow = NSStackView()
+    private let cpuSection = NSStackView()
+    private let memorySection = NSStackView()
+    private let batterySection = NSStackView()
+    private let networkSection = NSStackView()
+    private let diskSection = NSStackView()
+    private let metricSectionsStack = NSStackView()
+    private weak var contentStack: NSStackView?
     private var preferences: PreferencesSnapshot
     private let keyboardFocusHandler: (NSWindow?) -> Void
 
@@ -88,6 +114,63 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         keyboardFocusHandler(popover.contentViewController?.view.window)
     }
 
+    func layoutStateForTesting() -> (
+        viewportHeight: CGFloat,
+        contentHeight: CGFloat,
+        scrollable: Bool
+    ) {
+        guard let view = popover.contentViewController?.view else {
+            return (0, 0, false)
+        }
+        view.frame = NSRect(origin: .zero, size: popover.contentSize)
+        view.layoutSubtreeIfNeeded()
+        return (
+            contentScrollView.contentView.bounds.height,
+            contentStack?.fittingSize.height ?? 0,
+            contentScrollView.hasVerticalScroller
+        )
+    }
+
+    func batteryVisibilityForTesting() -> (
+        sectionHidden: Bool,
+        temperatureRowsHidden: Bool
+    ) {
+        (
+            batterySection.isHidden,
+            batteryRow.isHidden
+                && batterySessionMaximumRow.isHidden
+                && batteryMaximumRow.isHidden
+        )
+    }
+
+    func diskPresentationForTesting() -> (
+        usedText: String,
+        freeText: String,
+        usedColor: NSColor,
+        freeColor: NSColor
+    ) {
+        (
+            diskUsageValue.stringValue,
+            diskFreeValue.stringValue,
+            diskUsageValue.textColor ?? .labelColor,
+            diskFreeValue.textColor ?? .labelColor
+        )
+    }
+
+    func networkPresentationForTesting() -> (
+        downloadText: String,
+        uploadText: String,
+        downloadColor: NSColor,
+        uploadColor: NSColor
+    ) {
+        (
+            networkDownloadValue.stringValue,
+            networkUploadValue.stringValue,
+            networkDownloadValue.textColor ?? .labelColor,
+            networkUploadValue.textColor ?? .labelColor
+        )
+    }
+
     func update(snapshot: SystemSnapshot) {
         let language = preferences.language
         cpuValue.stringValue = Self.cpuText(snapshot.cpu, language: language)
@@ -106,6 +189,7 @@ final class PopoverController: NSObject, NSPopoverDelegate {
             language: language
         )
 
+        updateBatteryDetails(snapshot.battery)
         updateTemperatureField(batteryValue, state: snapshot.batteryTemperature)
         updateTemperatureField(
             batterySessionMaximumValue,
@@ -123,11 +207,17 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         thermalValue.textColor = Self.color(
             severity: MetricPresentationPolicy.thermalSeverity(snapshot.thermalLevel)
         )
+        updateNetwork(snapshot.network)
+        updateDisk(snapshot.disk)
+        updateHeatDiagnosis(HeatDiagnosisAnalyzer.evaluate(snapshot))
 
-        let noBattery = Self.isNoHardware(snapshot.batteryTemperature)
-        batteryRow.isHidden = false
-        batterySessionMaximumRow.isHidden = noBattery
-        batteryMaximumRow.isHidden = noBattery
+        let noBattery = Self.isNoHardware(snapshot.battery)
+        let noTemperature =
+            noBattery || Self.isNoHardware(snapshot.batteryTemperature)
+        batterySection.isHidden = noBattery
+        batteryRow.isHidden = noTemperature
+        batterySessionMaximumRow.isHidden = noTemperature
+        batteryMaximumRow.isHidden = noTemperature
         resetSessionMaximumButton.isEnabled =
             snapshot.batteryTemperature.freshValue != nil
             && snapshot.batterySessionMaximumTemperature.value != nil
@@ -142,7 +232,10 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         let stamps = [
             snapshot.cpu.stamp,
             snapshot.memory.stamp,
-            snapshot.batteryTemperature.stamp
+            snapshot.batteryTemperature.stamp,
+            snapshot.battery.stamp,
+            snapshot.network.stamp,
+            snapshot.disk.stamp
         ].compactMap { $0 }
         if let latest = stamps.max(by: { $0.wallTime < $1.wallTime }) {
             updatedValue.stringValue = language.text(
@@ -170,10 +263,23 @@ final class PopoverController: NSObject, NSPopoverDelegate {
             showsSparkline: visible,
             statusDisplayMode: snapshot.statusDisplayMode,
             compactMetrics: snapshot.compactMetrics,
+            metricOrder: snapshot.metricOrder,
+            statusSeparator: snapshot.statusSeparator,
+            statusDecimalPlaces: snapshot.statusDecimalPlaces,
             language: snapshot.language,
             alertsEnabled: snapshot.alertsEnabled,
+            cpuAlertEnabled: snapshot.cpuAlertEnabled,
+            memoryAlertEnabled: snapshot.memoryAlertEnabled,
+            thermalAlertEnabled: snapshot.thermalAlertEnabled,
+            batteryLevelAlertEnabled: snapshot.batteryLevelAlertEnabled,
+            batteryTemperatureAlertEnabled: snapshot.batteryTemperatureAlertEnabled,
+            diskFreeAlertEnabled: snapshot.diskFreeAlertEnabled,
             cpuAlertThreshold: snapshot.cpuAlertThreshold,
             memoryAlertThreshold: snapshot.memoryAlertThreshold,
+            batteryLevelAlertThreshold: snapshot.batteryLevelAlertThreshold,
+            batteryTemperatureAlertThreshold:
+                snapshot.batteryTemperatureAlertThreshold,
+            diskFreeAlertThreshold: snapshot.diskFreeAlertThreshold,
             alertSustainDuration: snapshot.alertSustainDuration
         )
         setPreferences(snapshot)
@@ -187,6 +293,15 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         let controller = NSViewController()
         let root = NSView()
         controller.view = root
+        let document = FlippedView()
+        document.translatesAutoresizingMaskIntoConstraints = false
+
+        contentScrollView.drawsBackground = false
+        contentScrollView.hasVerticalScroller = true
+        contentScrollView.autohidesScrollers = true
+        contentScrollView.translatesAutoresizingMaskIntoConstraints = false
+        contentScrollView.documentView = document
+        root.addSubview(contentScrollView)
 
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
         aboutButton.image = NSImage(
@@ -218,11 +333,35 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         let cpuRow = makeRow(title: cpuTitle, value: cpuValue)
         configureSummary(cpuSummaryValue)
         configureSparkline(cpuSparkline)
+        configureSection(
+            cpuSection,
+            views: [cpuRow, cpuSummaryValue, cpuSparkline]
+        )
 
         let memoryRow = makeRow(title: memoryTitle, value: memoryValue)
         configureSummary(memorySummaryValue)
         configureSparkline(memorySparkline)
+        configureSection(
+            memorySection,
+            views: [memoryRow, memorySummaryValue, memorySparkline]
+        )
 
+        let batteryLevelRow = makeRow(
+            title: batteryLevelTitle,
+            value: batteryLevelValue
+        )
+        let batteryStateRow = makeRow(
+            title: batteryStateTitle,
+            value: batteryStateValue
+        )
+        let batteryCyclesRow = makeRow(
+            title: batteryCyclesTitle,
+            value: batteryCyclesValue
+        )
+        let batteryHealthRow = makeRow(
+            title: batteryHealthTitle,
+            value: batteryHealthValue
+        )
         configureRow(batteryRow, title: batteryTitle, value: batteryValue)
         resetSessionMaximumButton.target = self
         resetSessionMaximumButton.action = #selector(resetSessionMaximum)
@@ -239,7 +378,47 @@ final class PopoverController: NSObject, NSPopoverDelegate {
             title: batteryMaximumTitle,
             value: batteryMaximumValue
         )
+        configureSection(
+            batterySection,
+            views: [
+                batteryLevelRow,
+                batteryStateRow,
+                batteryCyclesRow,
+                batteryHealthRow,
+                batteryRow,
+                batterySessionMaximumRow,
+                batteryMaximumRow
+            ]
+        )
+        let networkDownloadRow = makeRow(
+            title: networkDownloadTitle,
+            value: networkDownloadValue
+        )
+        let networkUploadRow = makeRow(
+            title: networkUploadTitle,
+            value: networkUploadValue
+        )
+        configureSection(
+            networkSection,
+            views: [networkDownloadRow, networkUploadRow]
+        )
+        let diskUsageRow = makeRow(
+            title: diskUsageTitle,
+            value: diskUsageValue
+        )
+        let diskFreeRow = makeRow(
+            title: diskFreeTitle,
+            value: diskFreeValue
+        )
+        configureSection(diskSection, views: [diskUsageRow, diskFreeRow])
+
+        metricSectionsStack.orientation = .vertical
+        metricSectionsStack.alignment = .width
+        metricSectionsStack.spacing = 12
         let thermalRow = makeRow(title: thermalTitle, value: thermalValue)
+        heatDiagnosisTitle.font = .systemFont(ofSize: 12, weight: .semibold)
+        heatDiagnosisValue.textColor = .secondaryLabelColor
+        heatDiagnosisValue.font = .systemFont(ofSize: 11)
 
         updatedValue.textColor = .secondaryLabelColor
         updatedValue.font = .systemFont(ofSize: 11)
@@ -256,16 +435,11 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         let rows = [
             header,
             separator(),
-            cpuRow,
-            cpuSummaryValue,
-            cpuSparkline,
-            memoryRow,
-            memorySummaryValue,
-            memorySparkline,
-            batteryRow,
-            batterySessionMaximumRow,
-            batteryMaximumRow,
+            metricSectionsStack,
+            separator(),
             thermalRow,
+            heatDiagnosisTitle,
+            heatDiagnosisValue,
             separator(),
             footer
         ]
@@ -275,31 +449,47 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         stack.spacing = 10
         stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 14, right: 16)
         stack.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(stack)
+        document.addSubview(stack)
+        contentStack = stack
 
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: root.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor)
+            contentScrollView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            contentScrollView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            contentScrollView.topAnchor.constraint(equalTo: root.topAnchor),
+            contentScrollView.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            document.leadingAnchor.constraint(equalTo: contentScrollView.contentView.leadingAnchor),
+            document.trailingAnchor.constraint(equalTo: contentScrollView.contentView.trailingAnchor),
+            document.topAnchor.constraint(equalTo: contentScrollView.contentView.topAnchor),
+            document.widthAnchor.constraint(equalTo: contentScrollView.contentView.widthAnchor),
+            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: document.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: document.bottomAnchor)
         ])
         for row in [
             header,
-            cpuRow,
-            cpuSummaryValue,
-            cpuSparkline,
-            memoryRow,
-            memorySummaryValue,
-            memorySparkline,
-            batteryRow,
-            batterySessionMaximumRow,
-            batteryMaximumRow,
+            metricSectionsStack,
             thermalRow,
+            heatDiagnosisTitle,
+            heatDiagnosisValue,
             footer
         ] {
             row.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32).isActive = true
         }
         return controller
+    }
+
+    private func configureSection(
+        _ section: NSStackView,
+        views: [NSView]
+    ) {
+        section.setViews(views, in: .top)
+        section.orientation = .vertical
+        section.alignment = .width
+        section.spacing = 6
+        for view in views {
+            view.widthAnchor.constraint(equalTo: section.widthAnchor).isActive = true
+        }
     }
 
     private func makeRow(
@@ -352,6 +542,10 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         cpuTitle.stringValue = "CPU"
         memoryTitle.stringValue = language.text("Metrilens 占用", "Metrilens Memory")
         batteryTitle.stringValue = language.text("电池温度", "Battery Temperature")
+        batteryLevelTitle.stringValue = language.text("电池电量", "Battery Level")
+        batteryStateTitle.stringValue = language.text("供电状态", "Power State")
+        batteryCyclesTitle.stringValue = language.text("循环次数", "Cycle Count")
+        batteryHealthTitle.stringValue = language.text("电池健康", "Battery Health")
         batterySessionMaximumTitle.stringValue = language.text(
             "本次最高",
             "Session Maximum"
@@ -361,6 +555,14 @@ final class PopoverController: NSObject, NSPopoverDelegate {
             "Device Maximum"
         )
         thermalTitle.stringValue = language.text("系统热状态", "Thermal State")
+        networkDownloadTitle.stringValue = language.text("网络下载", "Network Download")
+        networkUploadTitle.stringValue = language.text("网络上传", "Network Upload")
+        diskUsageTitle.stringValue = language.text("启动磁盘已用", "Startup Disk Used")
+        diskFreeTitle.stringValue = language.text("启动磁盘可用", "Startup Disk Available")
+        heatDiagnosisTitle.stringValue = language.text(
+            "异常发热诊断",
+            "Abnormal Heat Diagnosis"
+        )
 
         aboutButton.setAccessibilityLabel(
             language.text("关于 Metrilens", "About Metrilens")
@@ -395,6 +597,15 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         )
         batteryMaximumValue.setAccessibilityLabel(batteryMaximumTitle.stringValue)
         thermalValue.setAccessibilityLabel(thermalTitle.stringValue)
+        batteryLevelValue.setAccessibilityLabel(batteryLevelTitle.stringValue)
+        batteryStateValue.setAccessibilityLabel(batteryStateTitle.stringValue)
+        batteryCyclesValue.setAccessibilityLabel(batteryCyclesTitle.stringValue)
+        batteryHealthValue.setAccessibilityLabel(batteryHealthTitle.stringValue)
+        networkDownloadValue.setAccessibilityLabel(networkDownloadTitle.stringValue)
+        networkUploadValue.setAccessibilityLabel(networkUploadTitle.stringValue)
+        diskUsageValue.setAccessibilityLabel(diskUsageTitle.stringValue)
+        diskFreeValue.setAccessibilityLabel(diskFreeTitle.stringValue)
+        heatDiagnosisValue.setAccessibilityLabel(heatDiagnosisTitle.stringValue)
 
         cpuSparkline.language = language
         cpuSparkline.metricName = "CPU"
@@ -405,13 +616,128 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     private func applyDisplayPreferences() {
         cpuSparkline.isHidden = !preferences.showsSparkline
         memorySparkline.isHidden = !preferences.showsSparkline
+        let sections: [PrimaryMetric: NSStackView] = [
+            .cpu: cpuSection,
+            .memory: memorySection,
+            .battery: batterySection,
+            .network: networkSection,
+            .disk: diskSection
+        ]
+        metricSectionsStack.setViews(
+            preferences.metricOrder.compactMap { sections[$0] },
+            in: .top
+        )
     }
 
     private func updateContentSize() {
         popover.contentSize = NSSize(
             width: 360,
-            height: preferences.showsSparkline ? 470 : 390
+            height: preferences.showsSparkline ? 650 : 570
         )
+    }
+
+    private func updateBatteryDetails(
+        _ state: MetricState<BatteryMetric>
+    ) {
+        guard let metric = state.value else {
+            let text = Self.placeholder(state, language: preferences.language)
+            for field in [
+                batteryLevelValue,
+                batteryStateValue,
+                batteryCyclesValue,
+                batteryHealthValue
+            ] {
+                field.stringValue = text
+                field.textColor = Self.metricTextColor(state)
+            }
+            return
+        }
+        batteryLevelValue.stringValue = String(format: "%.0f%%", metric.levelPercent)
+        batteryStateValue.stringValue = Self.batteryPowerText(
+            metric.powerState,
+            language: preferences.language
+        )
+        batteryCyclesValue.stringValue = metric.cycleCount.map(String.init) ?? "—"
+        batteryHealthValue.stringValue = Self.batteryHealthText(
+            metric.health,
+            language: preferences.language
+        )
+        for field in [
+            batteryLevelValue,
+            batteryStateValue,
+            batteryCyclesValue,
+            batteryHealthValue
+        ] {
+            field.textColor = state.isStale ? .secondaryLabelColor : .labelColor
+        }
+    }
+
+    private func updateNetwork(_ state: MetricState<NetworkMetric>) {
+        guard let metric = state.value else {
+            let text = Self.placeholder(state, language: preferences.language)
+            networkDownloadValue.stringValue = text
+            networkUploadValue.stringValue = text
+            networkDownloadValue.textColor = Self.metricTextColor(state)
+            networkUploadValue.textColor = Self.metricTextColor(state)
+            return
+        }
+        networkDownloadValue.stringValue = Self.rateText(
+            metric.downloadBytesPerSecond
+        )
+        networkUploadValue.stringValue = Self.rateText(metric.uploadBytesPerSecond)
+        networkDownloadValue.textColor = Self.metricTextColor(state)
+        networkUploadValue.textColor = Self.metricTextColor(state)
+    }
+
+    private func updateDisk(_ state: MetricState<DiskCapacityMetric>) {
+        guard let metric = state.value else {
+            let text = Self.placeholder(state, language: preferences.language)
+            diskUsageValue.stringValue = text
+            diskFreeValue.stringValue = text
+            diskUsageValue.textColor = Self.metricTextColor(state)
+            diskFreeValue.textColor = Self.metricTextColor(state)
+            return
+        }
+        diskUsageValue.stringValue = "\(Self.byteText(metric.usedBytes))  "
+            + String(format: "%.0f%%", metric.usedPercent)
+        diskFreeValue.stringValue = "\(Self.byteText(metric.availableBytes))  "
+            + String(format: "%.0f%%", metric.freePercent)
+        let severity: MetricVisualSeverity =
+            metric.freePercent <= 5 ? .warning
+            : metric.freePercent <= 10 ? .caution
+            : .normal
+        diskUsageValue.textColor = Self.metricTextColor(state)
+        diskFreeValue.textColor = state.isStale
+            ? .secondaryLabelColor
+            : Self.color(severity: severity)
+    }
+
+    private func updateHeatDiagnosis(_ diagnosis: HeatDiagnosis) {
+        let language = preferences.language
+        var lines = [HeatDiagnosisAnalyzer.summary(diagnosis, language: language)]
+        if diagnosis.isAbnormal {
+            lines.append(contentsOf: diagnosis.evidence.map {
+                "• " + HeatDiagnosisAnalyzer.evidenceText($0, language: language)
+            })
+            lines.append(contentsOf: diagnosis.recommendations.prefix(3).map {
+                "→ " + HeatDiagnosisAnalyzer.recommendationText(
+                    $0,
+                    language: language
+                )
+            })
+            lines.append(
+                language.text(
+                    "Metrilens 不扫描进程；具体来源请在“活动监视器”确认。",
+                    "Metrilens does not scan processes; confirm the source in Activity Monitor."
+                )
+            )
+        }
+        heatDiagnosisValue.stringValue = lines.joined(separator: "\n")
+        heatDiagnosisValue.textColor = diagnosis.severity == .urgent
+            ? .systemRed
+            : diagnosis.severity == .elevated
+                ? .systemOrange
+                : .secondaryLabelColor
     }
 
     private func updateTemperatureField(
@@ -494,6 +820,51 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         )
     }
 
+    private static func batteryPowerText(
+        _ state: BatteryPowerState,
+        language: AppLanguage
+    ) -> String {
+        switch state {
+        case .charging: return language.text("充电中", "Charging")
+        case .charged: return language.text("已充满", "Charged")
+        case .discharging: return language.text("使用电池", "On Battery")
+        case .externalPower: return language.text("外接电源", "Power Adapter")
+        case .unknown: return language.text("未知", "Unknown")
+        }
+    }
+
+    private static func batteryHealthText(
+        _ health: BatteryHealth,
+        language: AppLanguage
+    ) -> String {
+        switch health {
+        case .good: return language.text("正常", "Good")
+        case .fair: return language.text("一般", "Fair")
+        case .poor: return language.text("较差", "Poor")
+        case .serviceRecommended:
+            return language.text("建议维修", "Service Recommended")
+        case .unknown: return language.text("系统未提供", "Not Provided")
+        }
+    }
+
+    private static func rateText(_ bytesPerSecond: Double) -> String {
+        let units = ["B/s", "KB/s", "MB/s", "GB/s"]
+        var value = max(0, bytesPerSecond)
+        var index = 0
+        while value >= 1_000, index < units.count - 1 {
+            value /= 1_000
+            index += 1
+        }
+        return String(format: value < 10 && index > 0 ? "%.1f %@" : "%.0f %@", value, units[index])
+    }
+
+    private static func byteText(_ bytes: UInt64) -> String {
+        ByteCountFormatter.string(
+            fromByteCount: Int64(min(bytes, UInt64(Int64.max))),
+            countStyle: .file
+        )
+    }
+
     private static func summaryText(
         _ summary: MetricHistorySummary?,
         language: AppLanguage
@@ -554,4 +925,8 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         formatter.dateFormat = "HH:mm:ss"
         return formatter
     }()
+}
+
+private final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
 }

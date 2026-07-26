@@ -18,7 +18,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Validate runtime constraints
         run: ./scripts/static_constraints.sh
@@ -37,6 +37,18 @@ jobs:
           -derivedDataPath .build/DerivedData
           CODE_SIGNING_ALLOWED=NO
           test
+
+      - name: Run Chinese and English UI tests
+        run: ./scripts/test_localizations.sh
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-xcresult-${{ github.run_attempt }}
+          path: .build/DerivedData/Logs/Test/*.xcresult
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Build Release bundle
         run: >

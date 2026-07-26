@@ -139,7 +139,13 @@ final class SamplingAndHistoryTests: XCTestCase {
                 lowPower: false,
                 sleeping: false
             ),
-            [.cpu: 1, .memory: 1, .battery: 10]
+            [
+                .cpu: 1,
+                .memory: 1,
+                .battery: 10,
+                .network: 1,
+                .disk: 60
+            ]
         )
         XCTAssertEqual(
             SamplingPolicy.resolve(
@@ -148,7 +154,13 @@ final class SamplingAndHistoryTests: XCTestCase {
                 lowPower: true,
                 sleeping: false
             ),
-            [.cpu: 5, .memory: 5, .battery: 120]
+            [
+                .cpu: 5,
+                .memory: 5,
+                .battery: 120,
+                .network: 5,
+                .disk: 120
+            ]
         )
         XCTAssertTrue(
             SamplingPolicy.resolve(
@@ -199,5 +211,24 @@ final class SamplingAndHistoryTests: XCTestCase {
             ),
             [.cpu: 2, .memory: 2, .battery: 30]
         )
+    }
+
+    func testHiddenNetworkAndDiskProvidersRemainPaused() {
+        let preferences = PreferencesSnapshot(
+            primaryMetric: .cpu,
+            refreshInterval: 1,
+            launchAtLogin: false,
+            showsSparkline: true
+        )
+
+        let periods = SamplingPolicy.resolve(
+            preferences: preferences,
+            popoverVisible: false,
+            lowPower: false,
+            sleeping: false
+        )
+
+        XCTAssertNil(periods[.network])
+        XCTAssertNil(periods[.disk])
     }
 }

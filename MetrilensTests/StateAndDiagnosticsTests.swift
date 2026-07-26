@@ -94,6 +94,22 @@ final class StateAndDiagnosticsTests: XCTestCase {
             stamp
         )
         snapshot.batteryTemperature = .stale(35, stamp)
+        snapshot.network = .stale(
+            NetworkMetric(
+                downloadBytesPerSecond: 1_000,
+                uploadBytesPerSecond: 500,
+                interfaceName: "en0"
+            ),
+            stamp
+        )
+        snapshot.disk = .stale(
+            DiskCapacityMetric(
+                totalBytes: 100,
+                freeBytes: 40,
+                availableBytes: 30
+            ),
+            stamp
+        )
 
         for metric in PrimaryMetric.allCases {
             let presentation = StatusItemController.presentation(
@@ -103,6 +119,42 @@ final class StateAndDiagnosticsTests: XCTestCase {
             XCTAssertTrue(presentation.title.hasSuffix(" ⏱"))
             XCTAssertEqual(presentation.staleStamps, [stamp])
         }
+    }
+
+    func testStaleDiskAndTemperatureStopContributingAlertSeverity() {
+        let stamp = SampleStamp(wallTime: Date(), uptime: 10)
+        var snapshot = SystemSnapshot.initial()
+        let lowDisk = DiskCapacityMetric(
+            totalBytes: 100,
+            freeBytes: 4,
+            availableBytes: 4
+        )
+
+        snapshot.disk = .available(lowDisk, stamp)
+        XCTAssertEqual(
+            StatusItemController.presentation(
+                primaryMetric: .disk,
+                snapshot: snapshot
+            ).severity,
+            .warning
+        )
+
+        snapshot.disk = .stale(lowDisk, stamp)
+        let staleDisk = StatusItemController.presentation(
+            primaryMetric: .disk,
+            snapshot: snapshot
+        )
+        XCTAssertEqual(staleDisk.severity, .normal)
+        XCTAssertEqual(staleDisk.staleStamps, [stamp])
+
+        snapshot.batteryTemperature = .stale(46, stamp)
+        XCTAssertEqual(
+            StatusItemController.presentation(
+                primaryMetric: .battery,
+                snapshot: snapshot
+            ).severity,
+            .normal
+        )
     }
 
     func testCompactStatusItemCombinesSelectedMetricsAndHighestSeverity() {

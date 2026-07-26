@@ -4,6 +4,8 @@ enum ProviderID: Hashable {
     case cpu
     case memory
     case battery
+    case network
+    case disk
 }
 
 struct SchedulerDebugState {

@@ -2,7 +2,7 @@ import XCTest
 @testable import Metrilens
 
 final class MetricSamplerTests: XCTestCase {
-    func testUnsupportedBatteryIsRemovedFromRoutineDeadlines() {
+    func testUnsupportedTemperatureStillSchedulesBatteryStatus() {
         let battery = FakeBatteryProvider()
         battery.becomesUnsupportedOnFirstCurrentSample = true
         let sampled = expectation(description: "battery capability probe")
@@ -14,8 +14,59 @@ final class MetricSamplerTests: XCTestCase {
         sampler.waitUntilIdleForTesting()
 
         let (_, scheduler) = sampler.debugStateForTesting()
-        XCTAssertFalse(scheduler.scheduledProviders.contains(.battery))
+        XCTAssertTrue(scheduler.scheduledProviders.contains(.battery))
         XCTAssertEqual(battery.currentSampleCount, 1)
+        sampler.stop()
+    }
+
+    func testBatteryScheduleStopsOnlyWhenBothProvidersReportNoHardware() {
+        let temperature = FakeBatteryProvider()
+        temperature.becomesUnsupportedOnFirstCurrentSample = true
+        let status = FakeBatteryStatusProvider()
+        status.reportsNoHardware = true
+        let sampled = expectation(description: "both battery providers sampled")
+        temperature.onCurrentSample = { sampled.fulfill() }
+        let sampler = makeSampler(
+            primaryMetric: .battery,
+            battery: temperature,
+            batteryStatus: status
+        )
+
+        sampler.start()
+        wait(for: [sampled], timeout: 1)
+        sampler.waitUntilIdleForTesting()
+
+        let (_, scheduler) = sampler.debugStateForTesting()
+        XCTAssertFalse(scheduler.scheduledProviders.contains(.battery))
+        sampler.stop()
+    }
+
+    func testBatteryStatusFailureIsRecordedAfterTemperatureCapabilityFailure() {
+        let temperature = FakeBatteryProvider()
+        temperature.routineUnsupportedFailure = .fieldMissing
+        let status = FakeBatteryStatusProvider()
+        let sampled = expectation(description: "temperature capability sampled")
+        temperature.onCurrentSample = { sampled.fulfill() }
+        let sampler = makeSampler(
+            primaryMetric: .battery,
+            battery: temperature,
+            batteryStatus: status
+        )
+
+        sampler.start()
+        wait(for: [sampled], timeout: 1)
+        sampler.waitUntilIdleForTesting()
+
+        status.nextSampleFailure = .iokitFailure(17)
+        sampler.powerSourceChanged()
+        sampler.waitUntilIdleForTesting()
+
+        let (snapshot, _) = sampler.debugStateForTesting()
+        XCTAssertTrue(
+            snapshot.recentErrors.contains {
+                $0.provider == .battery && $0.failure == .iokitFailure(17)
+            }
+        )
         sampler.stop()
     }
 
@@ -32,7 +83,7 @@ final class MetricSamplerTests: XCTestCase {
               case .unsupported(.noHardware) = snapshot.batteryMaximumTemperature else {
             return XCTFail("Both battery rows must agree that hardware is absent")
         }
-        XCTAssertFalse(scheduler.scheduledProviders.contains(.battery))
+        XCTAssertTrue(scheduler.scheduledProviders.contains(.battery))
         sampler.stop()
     }
 
@@ -60,7 +111,7 @@ final class MetricSamplerTests: XCTestCase {
               case .unsupported(.noHardware) = snapshot.batterySessionMaximumTemperature else {
             return XCTFail("Wake capability probe must synchronize all battery states")
         }
-        XCTAssertFalse(scheduler.scheduledProviders.contains(.battery))
+        XCTAssertTrue(scheduler.scheduledProviders.contains(.battery))
         sampler.stop()
     }
 
@@ -472,6 +523,9 @@ final class MetricSamplerTests: XCTestCase {
         cpu: FakeCPUProvider = FakeCPUProvider(),
         memory: FakeMemoryProvider = FakeMemoryProvider(),
         battery: FakeBatteryProvider,
+        batteryStatus: FakeBatteryStatusProvider = FakeBatteryStatusProvider(),
+        network: FakeNetworkProvider = FakeNetworkProvider(),
+        disk: FakeDiskProvider = FakeDiskProvider(),
         uptimeProvider: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     ) -> MetricSampler {
         MetricSampler(
@@ -479,6 +533,9 @@ final class MetricSamplerTests: XCTestCase {
             cpuProvider: cpu,
             memoryProvider: memory,
             batteryProvider: battery,
+            batteryStatusProvider: batteryStatus,
+            networkProvider: network,
+            diskProvider: disk,
             thermalProvider: FakeThermalProvider(),
             uptimeProvider: uptimeProvider,
             lowPowerProvider: { false }
@@ -588,6 +645,7 @@ private final class FakeBatteryProvider: BatteryTemperatureProviding {
     var lastCurrentSampleFailure: MetricFailure?
     var lastMaximumSampleFailure: MetricFailure?
     var becomesUnsupportedOnFirstCurrentSample = false
+    var routineUnsupportedFailure: MetricFailure?
     var maximumReportsNoHardware = false
     var currentSampleCount = 0
     var maximumSampleCount = 0
@@ -616,9 +674,11 @@ private final class FakeBatteryProvider: BatteryTemperatureProviding {
             onCurrentSample?()
             return currentTemperature
         }
-        if becomesUnsupportedOnFirstCurrentSample {
-            lastCurrentSampleFailure = .noHardware
-            currentTemperature = .unsupported(.noHardware)
+        if becomesUnsupportedOnFirstCurrentSample
+            || routineUnsupportedFailure != nil {
+            let failure = routineUnsupportedFailure ?? .noHardware
+            lastCurrentSampleFailure = failure
+            currentTemperature = .unsupported(failure)
             shouldScheduleRoutineCurrentSample = false
         } else {
             let temperature = sampleTemperatures.isEmpty
@@ -656,6 +716,71 @@ private final class FakeBatteryProvider: BatteryTemperatureProviding {
     }
 
     func expireMaximumIfNeeded(nowUptime: TimeInterval) {}
+}
+
+private final class FakeBatteryStatusProvider: BatteryStatusProviding {
+    var state: MetricState<BatteryMetric> = .available(
+        BatteryMetric(
+            levelPercent: 80,
+            powerState: .discharging,
+            cycleCount: 100,
+            health: .good,
+            timeRemainingMinutes: 240
+        ),
+        .now()
+    )
+    var lastSampleFailure: MetricFailure?
+    var reportsNoHardware = false
+    var nextSampleFailure: MetricFailure?
+
+    func sample(period: TimeInterval) -> MetricState<BatteryMetric> {
+        if reportsNoHardware {
+            lastSampleFailure = .noHardware
+            state = .unsupported(.noHardware)
+        } else if let failure = nextSampleFailure {
+            nextSampleFailure = nil
+            lastSampleFailure = failure
+            if let value = state.value {
+                state = .stale(value, state.stamp ?? .now())
+            } else {
+                state = .unavailable(failure)
+            }
+        } else {
+            lastSampleFailure = nil
+        }
+        return state
+    }
+
+    func pause(nowUptime: TimeInterval) {
+        if case let .available(value, stamp) = state {
+            state = .stale(value, stamp)
+        }
+    }
+
+    func expireCachedValue(nowUptime: TimeInterval) {}
+
+    func resetCapabilities() {
+        lastSampleFailure = nil
+    }
+}
+
+private final class FakeNetworkProvider: NetworkProviding {
+    var state: MetricState<NetworkMetric> = .unavailable(.noActiveInterface)
+    var lastSampleFailure: MetricFailure?
+
+    func sample(period: TimeInterval) -> MetricState<NetworkMetric> { state }
+    func pause(nowUptime: TimeInterval) {}
+    func resetBaseline() {}
+    func expireCachedValue(nowUptime: TimeInterval) {}
+}
+
+private final class FakeDiskProvider: DiskCapacityProviding {
+    var state: MetricState<DiskCapacityMetric> = .unavailable(.fieldMissing)
+    var lastSampleFailure: MetricFailure?
+
+    func sample(period: TimeInterval) -> MetricState<DiskCapacityMetric> { state }
+    func pause(nowUptime: TimeInterval) {}
+    func expireCachedValue(nowUptime: TimeInterval) {}
 }
 
 private struct FakeThermalProvider: ThermalStateProviding {

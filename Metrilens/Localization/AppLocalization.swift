@@ -39,7 +39,11 @@ enum AppText {
         case .memory:
             return language.text("内存", "Memory")
         case .battery:
-            return language.text("电池温度", "Battery Temperature")
+            return language.text("电池", "Battery")
+        case .network:
+            return language.text("网络速率", "Network Speed")
+        case .disk:
+            return language.text("磁盘空间", "Disk Space")
         }
     }
 
@@ -71,6 +75,8 @@ enum AppText {
         switch failure {
         case .noHardware:
             return language.text("无电池", "No Battery")
+        case .noActiveInterface:
+            return language.text("无活动网络", "No Active Network")
         case .fieldMissing:
             return language.text("系统未提供该字段", "Field Not Provided")
         case .unsupportedEncoding:
@@ -81,6 +87,8 @@ enum AppText {
             return language.text("读数超出有效范围", "Reading Out of Range")
         case .outlierJump:
             return language.text("等待异常读数确认", "Confirming Unusual Reading")
+        case .fileSystemFailure:
+            return language.text("系统资源暂不可读", "System Resource Unavailable")
         case .iokitFailure:
             return language.text("电池接口暂不可读", "Battery Interface Unavailable")
         case .machFailure:

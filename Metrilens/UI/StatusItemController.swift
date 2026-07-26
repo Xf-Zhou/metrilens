@@ -116,12 +116,18 @@ final class StatusItemController: NSObject {
     ) -> StatusMetricPresentation {
         let metrics = preferences.displayedMetrics
         let segments = metrics.map {
-            segment(metric: $0, snapshot: snapshot)
+            segment(
+                metric: $0,
+                snapshot: snapshot,
+                decimalPlaces: preferences.statusDecimalPlaces
+            )
         }
         let staleStamps = segments.compactMap(\.staleStamp)
         let staleSuffix = staleStamps.isEmpty ? "" : " ⏱"
         return StatusMetricPresentation(
-            title: segments.map(\.title).joined(separator: " · ") + staleSuffix,
+            title: segments.map(\.title).joined(
+                separator: preferences.statusSeparator.text
+            ) + staleSuffix,
             staleStamps: staleStamps,
             severity: segments.map(\.severity).max() ?? .normal
         )
@@ -129,21 +135,44 @@ final class StatusItemController: NSObject {
 
     private static func segment(
         metric: PrimaryMetric,
-        snapshot: SystemSnapshot
+        snapshot: SystemSnapshot,
+        decimalPlaces: Int
     ) -> MetricSegment {
         switch metric {
         case .cpu:
-            return percentSegment(prefix: "CPU", state: snapshot.cpu.map(\.percent))
+            return percentSegment(
+                prefix: "CPU",
+                state: snapshot.cpu.map(\.percent),
+                decimalPlaces: decimalPlaces
+            )
         case .memory:
-            return percentSegment(prefix: "MEM", state: snapshot.memory.map(\.percent))
+            return percentSegment(
+                prefix: "MEM",
+                state: snapshot.memory.map(\.percent),
+                decimalPlaces: decimalPlaces
+            )
         case .battery:
-            return temperatureSegment(state: snapshot.batteryTemperature)
+            return temperatureSegment(
+                state: snapshot.batteryTemperature,
+                decimalPlaces: max(1, decimalPlaces)
+            )
+        case .network:
+            return networkSegment(
+                state: snapshot.network,
+                decimalPlaces: decimalPlaces
+            )
+        case .disk:
+            return diskSegment(
+                state: snapshot.disk,
+                decimalPlaces: decimalPlaces
+            )
         }
     }
 
     private static func percentSegment<T>(
         prefix: String,
-        state: MetricState<T>
+        state: MetricState<T>,
+        decimalPlaces: Int
     ) -> MetricSegment where T: PercentProviding {
         guard let value = state.value else {
             return MetricSegment(
@@ -153,14 +182,18 @@ final class StatusItemController: NSObject {
             )
         }
         return MetricSegment(
-            title: String(format: "\(prefix) %.0f%%", value.percentValue),
+            title: String(
+                format: "\(prefix) %.\(decimalPlaces)f%%",
+                value.percentValue
+            ),
             staleStamp: state.isStale ? state.stamp : nil,
             severity: .normal
         )
     }
 
     private static func temperatureSegment(
-        state: MetricState<Double>
+        state: MetricState<Double>,
+        decimalPlaces: Int
     ) -> MetricSegment {
         guard let value = state.value else {
             return MetricSegment(
@@ -170,10 +203,75 @@ final class StatusItemController: NSObject {
             )
         }
         return MetricSegment(
-            title: String(format: "BAT %.1f°", value),
+            title: String(format: "BAT %.\(decimalPlaces)f°", value),
             staleStamp: state.isStale ? state.stamp : nil,
-            severity: MetricPresentationPolicy.temperatureSeverity(value)
+            severity: state.isStale
+                ? .normal
+                : MetricPresentationPolicy.temperatureSeverity(value)
         )
+    }
+
+    private static func networkSegment(
+        state: MetricState<NetworkMetric>,
+        decimalPlaces: Int
+    ) -> MetricSegment {
+        guard let value = state.value else {
+            return MetricSegment(
+                title: "NET —",
+                staleStamp: nil,
+                severity: .normal
+            )
+        }
+        return MetricSegment(
+            title: "↓\(rate(value.downloadBytesPerSecond, decimalPlaces: decimalPlaces)) "
+                + "↑\(rate(value.uploadBytesPerSecond, decimalPlaces: decimalPlaces))",
+            staleStamp: state.isStale ? state.stamp : nil,
+            severity: .normal
+        )
+    }
+
+    private static func diskSegment(
+        state: MetricState<DiskCapacityMetric>,
+        decimalPlaces: Int
+    ) -> MetricSegment {
+        guard let value = state.value else {
+            return MetricSegment(
+                title: "DISK —",
+                staleStamp: nil,
+                severity: .normal
+            )
+        }
+        let severity: MetricVisualSeverity
+        if state.isStale {
+            severity = .normal
+        } else {
+            severity =
+                value.freePercent <= 5 ? .warning
+                : value.freePercent <= 10 ? .caution
+                : .normal
+        }
+        return MetricSegment(
+            title: String(
+                format: "DISK %.\(decimalPlaces)f%%",
+                value.freePercent
+            ),
+            staleStamp: state.isStale ? state.stamp : nil,
+            severity: severity
+        )
+    }
+
+    private static func rate(
+        _ bytesPerSecond: Double,
+        decimalPlaces: Int
+    ) -> String {
+        let units = ["B/s", "K/s", "M/s", "G/s"]
+        var value = max(0, bytesPerSecond)
+        var index = 0
+        while value >= 1_000, index < units.count - 1 {
+            value /= 1_000
+            index += 1
+        }
+        return String(format: "%.\(decimalPlaces)f%@", value, units[index])
     }
 
     private func updateLocalizedMetadata() {
@@ -189,8 +287,8 @@ final class StatusItemController: NSObject {
         )
         statusItem.button?.setAccessibilityHelp(
             preferences.language.text(
-                "打开 CPU、内存、电池温度和系统热状态",
-                "Open CPU, memory, battery temperature, and thermal status"
+                "打开 CPU、内存、电池、网络、磁盘和发热诊断",
+                "Open CPU, memory, battery, network, disk, and heat diagnostics"
             )
         )
     }

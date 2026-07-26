@@ -12,13 +12,21 @@ struct SamplingPolicy {
         let displayedMetrics = Set(preferences.displayedMetrics)
         let samplesCPU = popoverVisible
             || displayedMetrics.contains(.cpu)
-            || preferences.alertsEnabled
+            || (preferences.alertsEnabled && preferences.cpuAlertEnabled)
         let samplesMemory = popoverVisible
             || displayedMetrics.contains(.memory)
-            || preferences.alertsEnabled
-        let samplesBattery = displayedMetrics.contains(.battery)
+            || (preferences.alertsEnabled && preferences.memoryAlertEnabled)
+        let samplesBattery = popoverVisible
+            || displayedMetrics.contains(.battery)
+            || (preferences.alertsEnabled
+                && (preferences.batteryLevelAlertEnabled
+                    || preferences.batteryTemperatureAlertEnabled))
+        let samplesNetwork = popoverVisible || displayedMetrics.contains(.network)
+        let samplesDisk = popoverVisible
+            || displayedMetrics.contains(.disk)
+            || (preferences.alertsEnabled && preferences.diskFreeAlertEnabled)
         var result: [ProviderID: TimeInterval] = [:]
-        if popoverVisible || samplesBattery {
+        if samplesBattery {
             if lowPower {
                 result[.battery] = 120
             } else if popoverVisible {
@@ -32,6 +40,12 @@ struct SamplingPolicy {
         }
         if samplesMemory {
             result[.memory] = activePeriod
+        }
+        if samplesNetwork {
+            result[.network] = activePeriod
+        }
+        if samplesDisk {
+            result[.disk] = lowPower ? 120 : 60
         }
         return result
     }

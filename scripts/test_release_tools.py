@@ -298,7 +298,12 @@ class ReleaseToolsTests(unittest.TestCase):
     def test_actions_internal_mode_rejects_local_invocation_before_build(self):
         repository = Path(__file__).resolve().parent.parent
         environment = os.environ.copy()
-        for key in ["GITHUB_ACTIONS", "GITHUB_REF_NAME", "GITHUB_REF_TYPE"]:
+        for key in [
+            "GITHUB_ACTIONS",
+            "GITHUB_REF_NAME",
+            "GITHUB_REF_TYPE",
+            "RELEASE_TAG",
+        ]:
             environment.pop(key, None)
 
         result = subprocess.run(
@@ -318,7 +323,7 @@ class ReleaseToolsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertEqual(
             result.stderr.strip(),
-            "--publish-from-actions must run in GitHub Actions from tag v0.2.0",
+            "--publish-from-actions must run in GitHub Actions at tag v0.2.0",
         )
 
     def run_publish_flow(
@@ -439,8 +444,9 @@ class ReleaseToolsTests(unittest.TestCase):
                 environment.update(
                     {
                         "GITHUB_ACTIONS": "true",
-                        "GITHUB_REF_NAME": "v0.2.0",
-                        "GITHUB_REF_TYPE": "tag",
+                        "GITHUB_REF_NAME": "main",
+                        "GITHUB_REF_TYPE": "branch",
+                        "RELEASE_TAG": "v0.2.0",
                     }
                 )
             result = subprocess.run(

@@ -177,6 +177,87 @@ final class MetricAlertTests: XCTestCase {
         XCTAssertTrue(options.contains(.sound))
     }
 
+    func testAuthorizationRefreshRestoresDeliveryAfterSystemSettingsChange() {
+        let delivery = FakeNotificationDelivery()
+        delivery.authorizationGranted = false
+        delivery.authorizationStatus = .denied
+        let deniedApplied = expectation(description: "denied status applied")
+        let controller = MetricAlertController(
+            preferences: alertPreferences(),
+            delivery: delivery
+        )
+        DispatchQueue.main.async { deniedApplied.fulfill() }
+        wait(for: [deniedApplied], timeout: 1)
+        XCTAssertEqual(controller.authorizationState, .denied)
+
+        delivery.authorizationStatus = .authorized
+        let authorizedApplied = expectation(description: "authorized status applied")
+        controller.onAuthorizationChange = { state in
+            if state == .authorized {
+                authorizedApplied.fulfill()
+            }
+        }
+        controller.refreshAuthorizationStatus()
+        wait(for: [authorizedApplied], timeout: 1)
+
+        var snapshot = SystemSnapshot.initial()
+        snapshot.thermalLevel = .critical
+        controller.handle(snapshot: snapshot)
+        XCTAssertEqual(delivery.deliveredKinds, ["metrilens.alert.thermal"])
+    }
+
+    func testLowBatteryAndDiskAlertsHonorIndividualSwitches() {
+        var evaluator = MetricAlertEvaluator(cooldown: 600)
+        let stamp = SampleStamp(wallTime: Date(), uptime: 0)
+        var snapshot = SystemSnapshot.initial()
+        snapshot.battery = .available(
+            BatteryMetric(
+                levelPercent: 15,
+                powerState: .discharging,
+                cycleCount: 100,
+                health: .good,
+                timeRemainingMinutes: 60
+            ),
+            stamp
+        )
+        snapshot.disk = .available(
+            DiskCapacityMetric(
+                totalBytes: 100,
+                freeBytes: 8,
+                availableBytes: 8
+            ),
+            stamp
+        )
+        let preferences = PreferencesSnapshot(
+            primaryMetric: .cpu,
+            refreshInterval: 1,
+            launchAtLogin: false,
+            showsSparkline: true,
+            alertsEnabled: true,
+            cpuAlertEnabled: false,
+            memoryAlertEnabled: false,
+            thermalAlertEnabled: false,
+            batteryLevelAlertEnabled: true,
+            batteryTemperatureAlertEnabled: false,
+            diskFreeAlertEnabled: true,
+            alertSustainDuration: 30
+        )
+        _ = evaluator.evaluate(
+            snapshot: snapshot,
+            preferences: preferences,
+            nowUptime: 0
+        )
+
+        XCTAssertEqual(
+            Set(evaluator.evaluate(
+                snapshot: snapshot,
+                preferences: preferences,
+                nowUptime: 30
+            ).map(\.kind)),
+            Set([.batteryLevel, .diskFree])
+        )
+    }
+
     private func alertPreferences() -> PreferencesSnapshot {
         PreferencesSnapshot(
             primaryMetric: .cpu,
@@ -208,11 +289,19 @@ final class MetricAlertTests: XCTestCase {
 
 private final class FakeNotificationDelivery: LocalNotificationDelivering {
     var authorizationRequestCount = 0
+    var authorizationGranted = true
+    var authorizationStatus: NotificationAuthorizationState = .authorized
     var deliveredKinds: [String] = []
+
+    func getAuthorizationStatus(
+        completion: @escaping (NotificationAuthorizationState) -> Void
+    ) {
+        completion(authorizationStatus)
+    }
 
     func requestAuthorization(completion: @escaping (Bool) -> Void) {
         authorizationRequestCount += 1
-        completion(true)
+        completion(authorizationGranted)
     }
 
     func deliver(identifier: String, title: String, body: String) {

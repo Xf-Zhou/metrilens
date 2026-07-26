@@ -26,6 +26,9 @@ final class ProductQualityTests: XCTestCase {
         defaults.set(["unexpected"], forKey: "showsSparkline")
         defaults.set("wide", forKey: "statusDisplayMode")
         defaults.set(["cpu", "cpu"], forKey: "compactMetrics")
+        defaults.set(["cpu"], forKey: "metricOrder")
+        defaults.set("comma", forKey: "statusSeparator")
+        defaults.set(3, forKey: "statusDecimalPlaces")
         defaults.set("fr", forKey: "language")
         defaults.set("yes", forKey: "alertsEnabled")
         defaults.set(87, forKey: "cpuAlertThreshold")
@@ -50,6 +53,9 @@ final class ProductQualityTests: XCTestCase {
         XCTAssertNil(persistent["showsSparkline"])
         XCTAssertNil(persistent["statusDisplayMode"])
         XCTAssertNil(persistent["compactMetrics"])
+        XCTAssertNil(persistent["metricOrder"])
+        XCTAssertNil(persistent["statusSeparator"])
+        XCTAssertNil(persistent["statusDecimalPlaces"])
         XCTAssertNil(persistent["language"])
         XCTAssertNil(persistent["alertsEnabled"])
         XCTAssertNil(persistent["cpuAlertThreshold"])
@@ -65,6 +71,9 @@ final class ProductQualityTests: XCTestCase {
         preferences.setShowsSparkline(false)
         preferences.setStatusDisplayMode(.compact)
         preferences.setCompactMetrics([.memory])
+        preferences.setMetricOrder([.disk, .network, .battery, .memory, .cpu])
+        preferences.setStatusSeparator(.bar)
+        preferences.setStatusDecimalPlaces(1)
         preferences.setLanguage(.english)
         preferences.setAlertsEnabled(true)
         preferences.setCPUAlertThreshold(95)
@@ -144,13 +153,25 @@ final class ProductQualityTests: XCTestCase {
             "settings.primary_metric=",
             "settings.display_mode=",
             "settings.compact_metrics=",
+            "settings.metric_order=",
+            "settings.status_separator=",
+            "settings.status_decimals=",
             "settings.refresh_seconds=",
             "settings.launch_at_login=",
             "settings.sparkline=",
             "settings.language=",
             "settings.alerts_enabled=",
+            "settings.cpu_alert_enabled=",
+            "settings.memory_alert_enabled=",
+            "settings.thermal_alert_enabled=",
+            "settings.battery_level_alert_enabled=",
+            "settings.battery_temperature_alert_enabled=",
+            "settings.disk_free_alert_enabled=",
             "settings.cpu_alert_threshold=",
             "settings.memory_alert_threshold=",
+            "settings.battery_level_alert_threshold=",
+            "settings.battery_temperature_alert_threshold=",
+            "settings.disk_free_alert_threshold=",
             "settings.alert_sustain_seconds=",
             "sampling.running=",
             "sampling.sleeping=",
@@ -158,6 +179,8 @@ final class ProductQualityTests: XCTestCase {
             "sampling.cpu_period=",
             "sampling.memory_period=",
             "sampling.battery_period=",
+            "sampling.network_period=",
+            "sampling.disk_period=",
             "metrics.cpu=",
             "metrics.cpu_average=",
             "metrics.cpu_peak=",
@@ -165,9 +188,20 @@ final class ProductQualityTests: XCTestCase {
             "metrics.memory_average=",
             "metrics.memory_peak=",
             "metrics.battery_temperature=",
+            "metrics.battery_level=",
+            "metrics.battery_power=",
+            "metrics.battery_cycles=",
+            "metrics.battery_health=",
             "metrics.battery_session_maximum=",
             "metrics.battery_maximum=",
+            "metrics.network_download=",
+            "metrics.network_upload=",
+            "metrics.disk_used=",
+            "metrics.disk_free=",
             "metrics.thermal=",
+            "heat.severity=",
+            "heat.evidence=",
+            "heat.recommendations=",
             "metrics.recent_errors="
         ]
         let lines = report.split(separator: "\n").map(String.init)
@@ -218,6 +252,162 @@ final class ProductQualityTests: XCTestCase {
         controller.focusKeyboardInput()
 
         XCTAssertEqual(focusRequests, 1)
+    }
+
+    func testPopoverScrollsWhenMaximumHeatDiagnosisExceedsViewport() {
+        let stamp = SampleStamp(wallTime: Date(), uptime: 10)
+        var snapshot = SystemSnapshot.initial()
+        snapshot.cpu = .available(CPUMetric(percent: 95), stamp)
+        snapshot.cpuHistorySummary = MetricHistorySummary(
+            average: 90,
+            peak: 100
+        )
+        snapshot.battery = .available(
+            BatteryMetric(
+                levelPercent: 70,
+                powerState: .charging,
+                cycleCount: 200,
+                health: .good,
+                timeRemainingMinutes: 30
+            ),
+            stamp
+        )
+        snapshot.batteryTemperature = .available(47, stamp)
+        snapshot.thermalLevel = .critical
+        let controller = PopoverController(
+            preferences: PreferencesSnapshot(
+                primaryMetric: .cpu,
+                refreshInterval: 1,
+                launchAtLogin: false,
+                showsSparkline: true,
+                language: .english
+            )
+        )
+
+        controller.update(snapshot: snapshot)
+        let layout = controller.layoutStateForTesting()
+
+        XCTAssertTrue(layout.scrollable)
+        XCTAssertGreaterThan(layout.contentHeight, layout.viewportHeight)
+    }
+
+    func testPreferencesInitiallyShowsTopOfFlippedDocument() {
+        let controller = PreferencesController(
+            preferences: AppPreferences(defaults: defaults),
+            loginItemController: LoginItemController()
+        )
+
+        let scroll = controller.initialScrollStateForTesting()
+
+        XCTAssertTrue(scroll.documentIsFlipped)
+        XCTAssertEqual(scroll.visibleMinY, 0, accuracy: 0.001)
+        XCTAssertTrue(scroll.languageControlVisible)
+    }
+
+    func testPopoverHidesWholeBatterySectionOnlyWhenBatteryIsAbsent() {
+        let stamp = SampleStamp(wallTime: Date(), uptime: 10)
+        let controller = PopoverController(showsSparkline: false)
+        var snapshot = SystemSnapshot.initial()
+        snapshot.battery = .unsupported(.noHardware)
+        snapshot.batteryTemperature = .unsupported(.noHardware)
+
+        controller.update(snapshot: snapshot)
+        var visibility = controller.batteryVisibilityForTesting()
+        XCTAssertTrue(visibility.sectionHidden)
+        XCTAssertTrue(visibility.temperatureRowsHidden)
+
+        snapshot.battery = .available(
+            BatteryMetric(
+                levelPercent: 80,
+                powerState: .discharging,
+                cycleCount: 100,
+                health: .good,
+                timeRemainingMinutes: 180
+            ),
+            stamp
+        )
+        controller.update(snapshot: snapshot)
+        visibility = controller.batteryVisibilityForTesting()
+        XCTAssertFalse(visibility.sectionHidden)
+        XCTAssertTrue(visibility.temperatureRowsHidden)
+    }
+
+    func testDiskPlaceholderClearsPreviousSeverityColor() {
+        let stamp = SampleStamp(wallTime: Date(), uptime: 10)
+        let controller = PopoverController(
+            preferences: PreferencesSnapshot(
+                primaryMetric: .cpu,
+                refreshInterval: 1,
+                launchAtLogin: false,
+                showsSparkline: false,
+                language: .simplifiedChinese
+            )
+        )
+        var snapshot = SystemSnapshot.initial()
+        snapshot.disk = .available(
+            DiskCapacityMetric(
+                totalBytes: 100,
+                freeBytes: 4,
+                availableBytes: 4
+            ),
+            stamp
+        )
+
+        controller.update(snapshot: snapshot)
+        XCTAssertTrue(
+            controller.diskPresentationForTesting().freeColor.isEqual(
+                NSColor.systemOrange
+            )
+        )
+
+        snapshot.disk = .unavailable(.fieldMissing)
+        controller.update(snapshot: snapshot)
+        let presentation = controller.diskPresentationForTesting()
+
+        XCTAssertEqual(presentation.usedText, "系统未提供该字段")
+        XCTAssertEqual(presentation.freeText, "系统未提供该字段")
+        XCTAssertTrue(presentation.usedColor.isEqual(NSColor.labelColor))
+        XCTAssertTrue(presentation.freeColor.isEqual(NSColor.labelColor))
+    }
+
+    func testNetworkPlaceholderClearsStaleTextColor() {
+        let stamp = SampleStamp(wallTime: Date(), uptime: 10)
+        let controller = PopoverController(
+            preferences: PreferencesSnapshot(
+                primaryMetric: .network,
+                refreshInterval: 1,
+                launchAtLogin: false,
+                showsSparkline: false,
+                language: .simplifiedChinese
+            )
+        )
+        var snapshot = SystemSnapshot.initial()
+        snapshot.network = .stale(
+            NetworkMetric(
+                downloadBytesPerSecond: 1_000,
+                uploadBytesPerSecond: 500,
+                interfaceName: "en0"
+            ),
+            stamp
+        )
+
+        controller.update(snapshot: snapshot)
+        var presentation = controller.networkPresentationForTesting()
+        XCTAssertTrue(
+            presentation.downloadColor.isEqual(NSColor.secondaryLabelColor)
+        )
+        XCTAssertTrue(
+            presentation.uploadColor.isEqual(NSColor.secondaryLabelColor)
+        )
+
+        snapshot.network = .unavailable(.fieldMissing)
+        controller.update(snapshot: snapshot)
+        presentation = controller.networkPresentationForTesting()
+
+        XCTAssertEqual(presentation.downloadText, "系统未提供该字段")
+        XCTAssertEqual(presentation.uploadText, "系统未提供该字段")
+        XCTAssertTrue(presentation.downloadColor.isEqual(NSColor.labelColor))
+        XCTAssertTrue(presentation.uploadColor.isEqual(NSColor.labelColor))
     }
 
     func testEnglishLocalizationAndDiagnosticFilename() {

@@ -1,10 +1,22 @@
 import Foundation
 
+private enum MetricFailureSource: Hashable {
+    case cpu
+    case memory
+    case batteryTemperature
+    case batteryStatus
+    case network
+    case disk
+}
+
 final class MetricSampler {
     private let queue = DispatchQueue(label: "com.xfzhou.Metrilens.sampler", qos: .utility)
     private let cpuProvider: CPUProviding
     private let memoryProvider: MemoryProviding
     private let batteryProvider: BatteryTemperatureProviding
+    private let batteryStatusProvider: BatteryStatusProviding
+    private let networkProvider: NetworkProviding
+    private let diskProvider: DiskCapacityProviding
     private let thermalProvider: ThermalStateProviding
     private let uptimeProvider: () -> TimeInterval
     private let lowPowerProvider: () -> Bool
@@ -23,7 +35,7 @@ final class MetricSampler {
     private var lastPeriods: [ProviderID: TimeInterval] = [:]
     private var systemEventCoalescer = SystemEventCoalescer()
     private var batterySessionMaximum: (value: Double, stamp: SampleStamp)?
-    private var lastFailures: [ProviderID: MetricFailure] = [:]
+    private var lastFailures: [MetricFailureSource: MetricFailure] = [:]
 
     var onSnapshot: ((SystemSnapshot) -> Void)?
 
@@ -32,6 +44,9 @@ final class MetricSampler {
         cpuProvider: CPUProviding = CPUProvider(),
         memoryProvider: MemoryProviding = MemoryProvider(),
         batteryProvider: BatteryTemperatureProviding = BatteryTemperatureProvider(),
+        batteryStatusProvider: BatteryStatusProviding = BatteryStatusProvider(),
+        networkProvider: NetworkProviding = NetworkProvider(),
+        diskProvider: DiskCapacityProviding = DiskCapacityProvider(),
         thermalProvider: ThermalStateProviding = ThermalStateProvider(),
         uptimeProvider: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
         lowPowerProvider: @escaping () -> Bool = { ProcessInfo.processInfo.isLowPowerModeEnabled },
@@ -41,6 +56,9 @@ final class MetricSampler {
         self.cpuProvider = cpuProvider
         self.memoryProvider = memoryProvider
         self.batteryProvider = batteryProvider
+        self.batteryStatusProvider = batteryStatusProvider
+        self.networkProvider = networkProvider
+        self.diskProvider = diskProvider
         self.thermalProvider = thermalProvider
         self.uptimeProvider = uptimeProvider
         self.lowPowerProvider = lowPowerProvider
@@ -54,9 +72,13 @@ final class MetricSampler {
             self.snapshot.batteryMaximumTemperature = self.batteryProvider.sampleMaximum()
             self.recordFailure(
                 self.batteryProvider.lastMaximumSampleFailure,
-                provider: .battery
+                provider: .battery,
+                source: .batteryTemperature
             )
             self.snapshot.batteryTemperature = self.batteryProvider.currentTemperature
+            self.snapshot.battery = self.batteryStatusProvider.state
+            self.snapshot.network = self.networkProvider.state
+            self.snapshot.disk = self.diskProvider.state
             self.synchronizeBatterySessionMaximum()
             self.reconfigure(force: Set(self.effectivePeriods().keys))
             self.publish()
@@ -67,6 +89,9 @@ final class MetricSampler {
         queue.sync {
             scheduler.stop()
             batteryProvider.pause(nowUptime: uptimeProvider())
+            batteryStatusProvider.pause(nowUptime: uptimeProvider())
+            networkProvider.pause(nowUptime: uptimeProvider())
+            diskProvider.pause(nowUptime: uptimeProvider())
             isRunning = false
             lastPeriods = [:]
             updateRuntimeState()
@@ -93,6 +118,7 @@ final class MetricSampler {
         queue.async {
             self.sleeping = true
             self.cpuProvider.resetBaseline()
+            self.networkProvider.resetBaseline()
             self.reconfigure()
             self.publish()
         }
@@ -103,7 +129,10 @@ final class MetricSampler {
             let wasSleeping = self.sleeping
             self.sleeping = false
             self.cpuProvider.resetBaseline()
+            self.networkProvider.resetBaseline()
             self.batteryProvider.resetCapabilities()
+            self.batteryStatusProvider.resetCapabilities()
+            self.snapshot.battery = self.batteryStatusProvider.state
             self.snapshot.batteryTemperature = self.batteryProvider.currentTemperature
             if wasSleeping {
                 let shouldRefreshMaximum = self.systemEventCoalescer.shouldAccept(
@@ -113,7 +142,8 @@ final class MetricSampler {
                     self.snapshot.batteryMaximumTemperature = self.batteryProvider.sampleMaximum()
                     self.recordFailure(
                         self.batteryProvider.lastMaximumSampleFailure,
-                        provider: .battery
+                        provider: .battery,
+                        source: .batteryTemperature
                     )
                     self.snapshot.batteryTemperature = self.batteryProvider.currentTemperature
                     self.synchronizeBatterySessionMaximum()
@@ -177,7 +207,7 @@ final class MetricSampler {
     private func sample(_ due: Set<ProviderID>) {
         dispatchPrecondition(condition: .onQueue(queue))
         let periods = effectivePeriods()
-        var batteryCapabilityChanged = false
+        var shouldReconfigureBattery = false
         for provider in due {
             guard let period = periods[provider] else {
                 scheduler.complete(provider)
@@ -189,25 +219,59 @@ final class MetricSampler {
                 if case let .available(metric, stamp) = snapshot.cpu {
                     cpuHistory.append(percent: metric.percent, at: stamp.uptime)
                 }
-                recordFailure(cpuProvider.lastSampleFailure, provider: .cpu)
+                recordFailure(
+                    cpuProvider.lastSampleFailure,
+                    provider: .cpu,
+                    source: .cpu
+                )
             case .memory:
                 snapshot.memory = memoryProvider.sample(period: period)
                 if case let .available(metric, stamp) = snapshot.memory {
                     memoryHistory.append(percent: metric.percent, at: stamp.uptime)
                 }
-                recordFailure(memoryProvider.lastSampleFailure, provider: .memory)
+                recordFailure(
+                    memoryProvider.lastSampleFailure,
+                    provider: .memory,
+                    source: .memory
+                )
             case .battery:
-                snapshot.batteryTemperature = batteryProvider.sampleCurrent(period: period)
+                let sampledTemperature =
+                    batteryProvider.shouldScheduleRoutineCurrentSample
+                if sampledTemperature {
+                    snapshot.batteryTemperature =
+                        batteryProvider.sampleCurrent(period: period)
+                    recordFailure(
+                        batteryProvider.lastCurrentSampleFailure,
+                        provider: .battery,
+                        source: .batteryTemperature
+                    )
+                }
+                snapshot.battery = batteryStatusProvider.sample(period: period)
                 synchronizeBatterySessionMaximum()
                 recordFailure(
-                    batteryProvider.lastCurrentSampleFailure,
-                    provider: .battery
+                    batteryStatusProvider.lastSampleFailure,
+                    provider: .battery,
+                    source: .batteryStatus
                 )
-                batteryCapabilityChanged = !batteryProvider.shouldScheduleRoutineCurrentSample
+                shouldReconfigureBattery = batteryHardwareAbsent
+            case .network:
+                snapshot.network = networkProvider.sample(period: period)
+                recordFailure(
+                    networkProvider.lastSampleFailure,
+                    provider: .network,
+                    source: .network
+                )
+            case .disk:
+                snapshot.disk = diskProvider.sample(period: period)
+                recordFailure(
+                    diskProvider.lastSampleFailure,
+                    provider: .disk,
+                    source: .disk
+                )
             }
             scheduler.complete(provider)
         }
-        if batteryCapabilityChanged {
+        if shouldReconfigureBattery {
             reconfigure()
         }
         let now = uptimeProvider()
@@ -262,7 +326,30 @@ final class MetricSampler {
         }
         if lastPeriods[.battery] != nil, periods[.battery] == nil {
             batteryProvider.pause(nowUptime: now)
+            batteryStatusProvider.pause(nowUptime: now)
             snapshot.batteryTemperature = batteryProvider.currentTemperature
+            snapshot.battery = batteryStatusProvider.state
+        }
+        if lastPeriods[.battery] == nil, periods[.battery] != nil {
+            batteryStatusProvider.expireCachedValue(nowUptime: now)
+            snapshot.battery = batteryStatusProvider.state
+        }
+        if lastPeriods[.network] != nil, periods[.network] == nil {
+            networkProvider.pause(nowUptime: now)
+            snapshot.network = networkProvider.state
+        }
+        if lastPeriods[.network] == nil, periods[.network] != nil {
+            networkProvider.expireCachedValue(nowUptime: now)
+            networkProvider.resetBaseline()
+            snapshot.network = networkProvider.state
+        }
+        if lastPeriods[.disk] != nil, periods[.disk] == nil {
+            diskProvider.pause(nowUptime: now)
+            snapshot.disk = diskProvider.state
+        }
+        if lastPeriods[.disk] == nil, periods[.disk] != nil {
+            diskProvider.expireCachedValue(nowUptime: now)
+            snapshot.disk = diskProvider.state
         }
         lastPeriods = periods
         updateRuntimeState()
@@ -276,10 +363,19 @@ final class MetricSampler {
             lowPower: lowPowerProvider(),
             sleeping: sleeping
         )
-        if !batteryProvider.shouldScheduleRoutineCurrentSample {
+        if batteryHardwareAbsent {
             periods.removeValue(forKey: .battery)
         }
         return periods
+    }
+
+    private var batteryHardwareAbsent: Bool {
+        guard case .unsupported(.noHardware) =
+            batteryProvider.currentTemperature,
+            case .unsupported(.noHardware) = batteryStatusProvider.state else {
+            return false
+        }
+        return true
     }
 
     private func forceRefreshAfterSystemEvent(
@@ -295,9 +391,18 @@ final class MetricSampler {
             snapshot.batteryMaximumTemperature = batteryProvider.sampleMaximum()
             recordFailure(
                 batteryProvider.lastMaximumSampleFailure,
-                provider: .battery
+                provider: .battery,
+                source: .batteryTemperature
             )
             snapshot.batteryTemperature = batteryProvider.currentTemperature
+            if let period = effectivePeriods()[.battery] {
+                snapshot.battery = batteryStatusProvider.sample(period: period)
+                recordFailure(
+                    batteryStatusProvider.lastSampleFailure,
+                    provider: .battery,
+                    source: .batteryStatus
+                )
+            }
             synchronizeBatterySessionMaximum()
         }
         reconfigure(force: requested)
@@ -365,14 +470,15 @@ final class MetricSampler {
 
     private func recordFailure(
         _ failure: MetricFailure?,
-        provider: ProviderID
+        provider: ProviderID,
+        source: MetricFailureSource
     ) {
         guard let failure else {
-            lastFailures.removeValue(forKey: provider)
+            lastFailures.removeValue(forKey: source)
             return
         }
-        guard lastFailures[provider] != failure else { return }
-        lastFailures[provider] = failure
+        guard lastFailures[source] != failure else { return }
+        lastFailures[source] = failure
         snapshot.recentErrors.append(
             RecentMetricError(
                 provider: provider,

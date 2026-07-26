@@ -57,6 +57,7 @@ enum DiagnosticReport {
         snapshot: SystemSnapshot
     ) -> String {
         let language = preferences.language
+        let heatDiagnosis = HeatDiagnosisAnalyzer.evaluate(snapshot)
         return [
             language.text("Metrilens 诊断信息", "Metrilens Diagnostics"),
             "app.version=\(build.version)",
@@ -67,13 +68,25 @@ enum DiagnosticReport {
             "settings.primary_metric=\(preferences.primaryMetric.rawValue)",
             "settings.display_mode=\(preferences.statusDisplayMode.rawValue)",
             "settings.compact_metrics=\(preferences.compactMetrics.map(\.rawValue).joined(separator: ","))",
+            "settings.metric_order=\(preferences.metricOrder.map(\.rawValue).joined(separator: ","))",
+            "settings.status_separator=\(preferences.statusSeparator.rawValue)",
+            "settings.status_decimals=\(preferences.statusDecimalPlaces)",
             "settings.refresh_seconds=\(format(preferences.refreshInterval))",
             "settings.launch_at_login=\(yesNo(preferences.launchAtLogin))",
             "settings.sparkline=\(yesNo(preferences.showsSparkline))",
             "settings.language=\(preferences.language.rawValue)",
             "settings.alerts_enabled=\(yesNo(preferences.alertsEnabled))",
+            "settings.cpu_alert_enabled=\(yesNo(preferences.cpuAlertEnabled))",
+            "settings.memory_alert_enabled=\(yesNo(preferences.memoryAlertEnabled))",
+            "settings.thermal_alert_enabled=\(yesNo(preferences.thermalAlertEnabled))",
+            "settings.battery_level_alert_enabled=\(yesNo(preferences.batteryLevelAlertEnabled))",
+            "settings.battery_temperature_alert_enabled=\(yesNo(preferences.batteryTemperatureAlertEnabled))",
+            "settings.disk_free_alert_enabled=\(yesNo(preferences.diskFreeAlertEnabled))",
             "settings.cpu_alert_threshold=\(format(preferences.cpuAlertThreshold))%",
             "settings.memory_alert_threshold=\(format(preferences.memoryAlertThreshold))%",
+            "settings.battery_level_alert_threshold=\(format(preferences.batteryLevelAlertThreshold))%",
+            "settings.battery_temperature_alert_threshold=\(format(preferences.batteryTemperatureAlertThreshold))C",
+            "settings.disk_free_alert_threshold=\(format(preferences.diskFreeAlertThreshold))%",
             "settings.alert_sustain_seconds=\(format(preferences.alertSustainDuration))",
             "sampling.running=\(yesNo(snapshot.samplingRuntime.isRunning))",
             "sampling.sleeping=\(yesNo(snapshot.samplingRuntime.isSleeping))",
@@ -81,6 +94,8 @@ enum DiagnosticReport {
             "sampling.cpu_period=\(period(snapshot, .cpu))",
             "sampling.memory_period=\(period(snapshot, .memory))",
             "sampling.battery_period=\(period(snapshot, .battery))",
+            "sampling.network_period=\(period(snapshot, .network))",
+            "sampling.disk_period=\(period(snapshot, .disk))",
             "metrics.cpu=\(describePercent(snapshot.cpu.map(\.percent)))",
             "metrics.cpu_average=\(describeSummary(snapshot.cpuHistorySummary, keyPath: \.average))",
             "metrics.cpu_peak=\(describeSummary(snapshot.cpuHistorySummary, keyPath: \.peak))",
@@ -88,9 +103,20 @@ enum DiagnosticReport {
             "metrics.memory_average=\(describeSummary(snapshot.memoryHistorySummary, keyPath: \.average))",
             "metrics.memory_peak=\(describeSummary(snapshot.memoryHistorySummary, keyPath: \.peak))",
             "metrics.battery_temperature=\(describeTemperature(snapshot.batteryTemperature))",
+            "metrics.battery_level=\(describeBatteryLevel(snapshot.battery))",
+            "metrics.battery_power=\(describe(snapshot.battery) { $0.powerState.rawValue })",
+            "metrics.battery_cycles=\(describeBatteryCycles(snapshot.battery))",
+            "metrics.battery_health=\(describe(snapshot.battery) { $0.health.rawValue })",
             "metrics.battery_session_maximum=\(describeTemperature(snapshot.batterySessionMaximumTemperature))",
             "metrics.battery_maximum=\(describeTemperature(snapshot.batteryMaximumTemperature))",
+            "metrics.network_download=\(describeNetwork(snapshot.network, keyPath: \.downloadBytesPerSecond))",
+            "metrics.network_upload=\(describeNetwork(snapshot.network, keyPath: \.uploadBytesPerSecond))",
+            "metrics.disk_used=\(describeDisk(snapshot.disk, keyPath: \.usedPercent))",
+            "metrics.disk_free=\(describeDisk(snapshot.disk, keyPath: \.freePercent))",
             "metrics.thermal=\(thermalName(snapshot.thermalLevel))",
+            "heat.severity=\(heatDiagnosis.severity.rawValue)",
+            "heat.evidence=\(heatDiagnosis.evidence.map(\.rawValue).joined(separator: ","))",
+            "heat.recommendations=\(heatDiagnosis.recommendations.map(\.rawValue).joined(separator: ","))",
             "metrics.recent_errors=\(describeErrors(snapshot.recentErrors))"
         ].joined(separator: "\n")
     }
@@ -101,6 +127,32 @@ enum DiagnosticReport {
 
     private static func describeTemperature(_ state: MetricState<Double>) -> String {
         describe(state) { "\(format($0))C" }
+    }
+
+    private static func describeBatteryLevel(
+        _ state: MetricState<BatteryMetric>
+    ) -> String {
+        describe(state) { "\(format($0.levelPercent))%" }
+    }
+
+    private static func describeBatteryCycles(
+        _ state: MetricState<BatteryMetric>
+    ) -> String {
+        describe(state) { $0.cycleCount.map(String.init) ?? "unavailable" }
+    }
+
+    private static func describeNetwork(
+        _ state: MetricState<NetworkMetric>,
+        keyPath: KeyPath<NetworkMetric, Double>
+    ) -> String {
+        describe(state) { "\(format($0[keyPath: keyPath]))Bps" }
+    }
+
+    private static func describeDisk(
+        _ state: MetricState<DiskCapacityMetric>,
+        keyPath: KeyPath<DiskCapacityMetric, Double>
+    ) -> String {
+        describe(state) { "\(format($0[keyPath: keyPath]))%" }
     }
 
     private static func describeSummary(
@@ -147,11 +199,13 @@ enum DiagnosticReport {
     private static func failureName(_ failure: MetricFailure) -> String {
         switch failure {
         case .noHardware: return "no_hardware"
+        case .noActiveInterface: return "no_active_interface"
         case .fieldMissing: return "field_missing"
         case .unsupportedEncoding: return "unsupported_encoding"
         case .counterOverflow: return "counter_overflow"
         case .outOfRange: return "out_of_range"
         case .outlierJump: return "outlier_jump"
+        case .fileSystemFailure: return "filesystem_failure"
         case .iokitFailure: return "iokit_failure"
         case .machFailure: return "mach_failure"
         }
@@ -171,6 +225,8 @@ enum DiagnosticReport {
         case .cpu: return "cpu"
         case .memory: return "memory"
         case .battery: return "battery"
+        case .network: return "network"
+        case .disk: return "disk"
         }
     }
 

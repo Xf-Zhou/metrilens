@@ -16,17 +16,17 @@ if [[ -z "$repo_dir" ||
   exit 2
 fi
 
+cd "$repo_dir"
 tag="v$version"
 if [[ "$mode" == "--publish-from-actions" ]]; then
   if [[ "${GITHUB_ACTIONS:-}" != "true" ||
-        "${GITHUB_REF_TYPE:-}" != "tag" ||
-        "${GITHUB_REF_NAME:-}" != "$tag" ]]; then
-    print -u2 -- "--publish-from-actions must run in GitHub Actions from tag $tag"
+        "${RELEASE_TAG:-}" != "$tag" ||
+        "$(git rev-parse HEAD)" != "$(git rev-list -n 1 "$tag")" ]]; then
+    print -u2 -- "--publish-from-actions must run in GitHub Actions at tag $tag"
     exit 1
   fi
 fi
 
-cd "$repo_dir"
 if [[ -n "$(git status --porcelain)" ]]; then
   print -u2 "Publishing requires a clean worktree"
   exit 1

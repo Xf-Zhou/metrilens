@@ -49,6 +49,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sampler.stop()
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        alertController.refreshAuthorizationStatus()
+    }
+
     private func wireComponents() {
         statusController.onToggle = { [weak self] button in
             self?.popoverController.toggle(relativeTo: button)
@@ -68,6 +72,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popoverController.onQuit = {
             NSApp.terminate(nil)
         }
+        preferencesController.onTestNotification = { [weak self] in
+            self?.alertController.sendTestNotification()
+        }
+        preferencesController.onRefreshNotificationStatus = { [weak self] in
+            self?.alertController.refreshAuthorizationStatus()
+        }
+        preferencesController.onOpenNotificationSettings = {
+            guard let url = URL(
+                string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension"
+            ) else { return }
+            NSWorkspace.shared.open(url)
+        }
+        alertController.onAuthorizationChange = { [weak self] state in
+            self?.preferencesController.setNotificationAuthorizationState(state)
+        }
+        preferencesController.setNotificationAuthorizationState(
+            alertController.authorizationState
+        )
 
         sampler.onSnapshot = { [weak self] snapshot in
             self?.latestSnapshot = snapshot

@@ -11,11 +11,13 @@ struct SampleStamp: Equatable {
 
 enum MetricFailure: Error, Equatable {
     case noHardware
+    case noActiveInterface
     case fieldMissing
     case unsupportedEncoding
     case counterOverflow
     case outOfRange
     case outlierJump
+    case fileSystemFailure(Int32)
     case iokitFailure(Int32)
     case machFailure(Int32)
 }
