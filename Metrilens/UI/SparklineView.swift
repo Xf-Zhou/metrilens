@@ -3,6 +3,7 @@ import AppKit
 final class SparklineView: NSView {
     var isCollecting = true {
         didSet {
+            updateAccessibility()
             guard oldValue != isCollecting, !isHidden else { return }
             needsDisplay = true
         }
@@ -10,9 +11,20 @@ final class SparklineView: NSView {
 
     var points: [CPUHistoryPoint] = [] {
         didSet {
+            updateAccessibility()
             guard !isHidden else { return }
             needsDisplay = true
         }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configureAccessibility()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configureAccessibility()
     }
 
     override var isFlipped: Bool { true }
@@ -62,6 +74,24 @@ final class SparklineView: NSView {
                 x: bounds.maxX - size.width,
                 y: bounds.minY
             )
+        )
+    }
+
+    private func configureAccessibility() {
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("最近 60 秒 CPU 使用率")
+        updateAccessibility()
+    }
+
+    private func updateAccessibility() {
+        guard let current = points.last?.percent else {
+            setAccessibilityValue(isCollecting ? "正在收集" : "暂无样本")
+            return
+        }
+        let collecting = isCollecting ? "，仍在收集" : ""
+        setAccessibilityValue(
+            String(format: "%d 个样本，当前 %.1f%%%@" , points.count, current, collecting)
         )
     }
 }

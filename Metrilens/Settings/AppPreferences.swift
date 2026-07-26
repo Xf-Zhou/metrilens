@@ -34,6 +34,7 @@ final class AppPreferences {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        repairStoredValues()
         defaults.register(defaults: [
             Key.primaryMetric: PrimaryMetric.cpu.rawValue,
             Key.refreshInterval: 1.0,
@@ -84,6 +85,46 @@ final class AppPreferences {
     func setShowsSparkline(_ enabled: Bool) {
         defaults.set(enabled, forKey: Key.showsSparkline)
         notify()
+    }
+
+    func resetToDefaults() {
+        [
+            Key.primaryMetric,
+            Key.refreshInterval,
+            Key.launchAtLogin,
+            Key.showsSparkline
+        ].forEach(defaults.removeObject(forKey:))
+        notify()
+    }
+
+    private func repairStoredValues() {
+        if let rawMetric = defaults.object(forKey: Key.primaryMetric),
+           (!(rawMetric is String)
+                || PrimaryMetric(rawValue: rawMetric as? String ?? "") == nil) {
+            defaults.removeObject(forKey: Key.primaryMetric)
+        }
+
+        if let rawInterval = defaults.object(forKey: Key.refreshInterval) {
+            let number = rawInterval as? NSNumber
+            let isBoolean = number.map {
+                CFGetTypeID($0) == CFBooleanGetTypeID()
+            } ?? false
+            let interval = number?.doubleValue
+            if isBoolean
+                || interval?.isFinite != true
+                || ![1.0, 2.0, 5.0].contains(interval ?? .nan) {
+                defaults.removeObject(forKey: Key.refreshInterval)
+            }
+        }
+
+        for key in [Key.launchAtLogin, Key.showsSparkline] {
+            guard let value = defaults.object(forKey: key) else { continue }
+            guard let number = value as? NSNumber,
+                  CFGetTypeID(number) == CFBooleanGetTypeID() else {
+                defaults.removeObject(forKey: key)
+                continue
+            }
+        }
     }
 
     private func notify() {

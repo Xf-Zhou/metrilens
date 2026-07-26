@@ -10,8 +10,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         preferences: preferences,
         loginItemController: loginItemController
     )
+    private lazy var aboutController = AboutController { [weak self] in
+        guard let self else { return "Metrilens 诊断信息\nstatus=unavailable" }
+        return DiagnosticReport.make(
+            build: .current(),
+            context: .current(),
+            preferences: self.preferences.snapshot,
+            snapshot: self.latestSnapshot
+        )
+    }
     private let lifecycleBridge = LifecycleEventBridge()
     private var taskPowerProbe: TaskPowerProbe?
+    private var latestSnapshot = SystemSnapshot.initial()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         wireComponents()
@@ -40,11 +50,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popoverController.onOpenPreferences = { [weak self] in
             self?.preferencesController.show()
         }
+        popoverController.onOpenAbout = { [weak self] in
+            self?.aboutController.show()
+        }
         popoverController.onQuit = {
             NSApp.terminate(nil)
         }
 
         sampler.onSnapshot = { [weak self] snapshot in
+            self?.latestSnapshot = snapshot
             self?.statusController.update(snapshot: snapshot)
             self?.popoverController.update(snapshot: snapshot)
         }

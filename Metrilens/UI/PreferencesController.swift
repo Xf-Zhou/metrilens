@@ -16,7 +16,7 @@ final class PreferencesController: NSWindowController {
         self.preferences = preferences
         self.loginItemController = loginItemController
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 310),
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 360),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -44,15 +44,28 @@ final class PreferencesController: NSWindowController {
         metricPopup.addItems(withTitles: PrimaryMetric.allCases.map(\.menuTitle))
         metricPopup.target = self
         metricPopup.action = #selector(metricChanged)
+        metricPopup.setAccessibilityLabel("菜单栏主指标")
+        metricPopup.setAccessibilityHelp("选择菜单栏中持续显示的指标")
 
         intervalPopup.addItems(withTitles: ["1 秒", "2 秒", "5 秒"])
         intervalPopup.target = self
         intervalPopup.action = #selector(intervalChanged)
+        intervalPopup.setAccessibilityLabel("CPU 和内存刷新频率")
+        intervalPopup.setAccessibilityHelp("更低频率可以进一步减少后台开销")
 
         loginCheckbox.target = self
         loginCheckbox.action = #selector(loginChanged)
+        loginCheckbox.setAccessibilityHelp("允许 Metrilens 登录后自动运行")
         sparklineCheckbox.target = self
         sparklineCheckbox.action = #selector(sparklineChanged)
+        sparklineCheckbox.setAccessibilityHelp("在状态弹窗中显示最近 60 秒 CPU 曲线")
+
+        let reset = NSButton(
+            title: "恢复默认设置…",
+            target: self,
+            action: #selector(confirmReset)
+        )
+        reset.setAccessibilityHelp("恢复默认指标、刷新频率和显示选项")
 
         let sourceInfo = NSTextField(wrappingLabelWithString:
             Self.sourceInformation
@@ -65,7 +78,8 @@ final class PreferencesController: NSWindowController {
             loginCheckbox,
             sparklineCheckbox,
             separator(),
-            sourceInfo
+            sourceInfo,
+            reset
         ])
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -80,6 +94,7 @@ final class PreferencesController: NSWindowController {
             stack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor),
             sourceInfo.widthAnchor.constraint(equalToConstant: 372)
         ])
+        window?.initialFirstResponder = metricPopup
     }
 
     private func settingRow(_ title: String, control: NSView) -> NSStackView {
@@ -138,6 +153,34 @@ final class PreferencesController: NSWindowController {
 
     @objc private func sparklineChanged() {
         preferences.setShowsSparkline(sparklineCheckbox.state == .on)
+    }
+
+    @objc private func confirmReset() {
+        let alert = NSAlert()
+        alert.messageText = "恢复默认设置？"
+        alert.informativeText = "菜单栏指标、刷新频率、登录项和折线显示将恢复默认值。"
+        alert.addButton(withTitle: "恢复默认设置")
+        alert.addButton(withTitle: "取消")
+        guard let window else { return }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.resetToDefaults()
+        }
+    }
+
+    private func resetToDefaults() {
+        switch loginItemController.setEnabled(false) {
+        case .disabled:
+            preferences.resetToDefaults()
+            refresh()
+        case let .failed(error):
+            presentMessage(title: "无法关闭登录项", message: error.localizedDescription)
+        case .enabled, .requiresApproval:
+            presentMessage(
+                title: "无法关闭登录项",
+                message: "请先在“系统设置 → 通用 → 登录项”中关闭 Metrilens。"
+            )
+        }
     }
 
     private func presentMessage(title: String, message: String) {

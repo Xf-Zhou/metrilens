@@ -12,13 +12,22 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     private let batteryRow = NSStackView()
     private let batteryMaximumRow = NSStackView()
     private var showsSparkline: Bool
+    private let keyboardFocusHandler: (NSWindow?) -> Void
 
     var onVisibilityChange: ((Bool) -> Void)?
     var onOpenPreferences: (() -> Void)?
+    var onOpenAbout: (() -> Void)?
     var onQuit: (() -> Void)?
 
-    init(showsSparkline: Bool) {
+    init(
+        showsSparkline: Bool,
+        keyboardFocusHandler: ((NSWindow?) -> Void)? = nil
+    ) {
         self.showsSparkline = showsSparkline
+        self.keyboardFocusHandler = keyboardFocusHandler ?? { window in
+            NSApp.activate(ignoringOtherApps: true)
+            window?.makeKey()
+        }
         super.init()
         popover.behavior = .transient
         popover.animates = false
@@ -34,20 +43,30 @@ final class PopoverController: NSObject, NSPopoverDelegate {
             popover.performClose(nil)
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            focusKeyboardInput()
             onVisibilityChange?(true)
         }
     }
 
+    func focusKeyboardInput() {
+        keyboardFocusHandler(popover.contentViewController?.view.window)
+    }
+
     func update(snapshot: SystemSnapshot) {
         cpuValue.stringValue = Self.cpuText(snapshot.cpu)
+        cpuValue.setAccessibilityValue(cpuValue.stringValue)
         cpuValue.textColor = Self.metricTextColor(snapshot.cpu)
         memoryValue.stringValue = Self.memoryText(snapshot.memory)
+        memoryValue.setAccessibilityValue(memoryValue.stringValue)
         memoryValue.textColor = Self.metricTextColor(snapshot.memory)
         batteryValue.stringValue = Self.temperatureText(snapshot.batteryTemperature)
+        batteryValue.setAccessibilityValue(batteryValue.stringValue)
         batteryValue.textColor = Self.metricTextColor(snapshot.batteryTemperature)
         batteryMaximumValue.stringValue = Self.temperatureText(snapshot.batteryMaximumTemperature)
+        batteryMaximumValue.setAccessibilityValue(batteryMaximumValue.stringValue)
         batteryMaximumValue.textColor = Self.metricTextColor(snapshot.batteryMaximumTemperature)
         thermalValue.stringValue = Self.thermalText(snapshot.thermalLevel)
+        thermalValue.setAccessibilityValue(thermalValue.stringValue)
         thermalValue.textColor = Self.thermalColor(snapshot.thermalLevel)
 
         let batteryUnsupported = Self.isNoHardware(snapshot.batteryTemperature)
@@ -86,13 +105,28 @@ final class PopoverController: NSObject, NSPopoverDelegate {
 
         let title = NSTextField(labelWithString: "Metrilens")
         title.font = .systemFont(ofSize: 17, weight: .semibold)
+        let about = NSButton(
+            image: NSImage(
+                systemSymbolName: "info.circle",
+                accessibilityDescription: "关于 Metrilens"
+            ) ?? NSImage(),
+            target: self,
+            action: #selector(openAbout)
+        )
+        about.isBordered = false
+        about.keyEquivalent = "i"
+        about.keyEquivalentModifierMask = .command
+        about.setAccessibilityHelp("打开版本与隐私安全诊断信息")
         let settings = NSButton(
             image: NSImage(systemSymbolName: "gearshape", accessibilityDescription: "设置") ?? NSImage(),
             target: self,
             action: #selector(openPreferences)
         )
         settings.isBordered = false
-        let header = NSStackView(views: [title, NSView(), settings])
+        settings.keyEquivalent = ","
+        settings.keyEquivalentModifierMask = .command
+        settings.setAccessibilityHelp("打开刷新频率与显示设置")
+        let header = NSStackView(views: [title, NSView(), about, settings])
         header.orientation = .horizontal
         header.alignment = .centerY
 
@@ -110,6 +144,8 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         let quit = NSButton(title: "退出", target: self, action: #selector(quitApplication))
         quit.isBordered = false
         quit.font = .systemFont(ofSize: 11)
+        quit.keyEquivalent = "q"
+        quit.keyEquivalentModifierMask = .command
         let footer = NSStackView(views: [updatedValue, NSView(), quit])
         footer.orientation = .horizontal
         footer.alignment = .centerY
@@ -160,6 +196,8 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         titleLabel.textColor = .secondaryLabelColor
         value.alignment = .right
         value.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+        value.setAccessibilityLabel(title)
+        value.setAccessibilityValue(value.stringValue)
         row.setViews([titleLabel, NSView(), value], in: .leading)
         row.orientation = .horizontal
         row.alignment = .centerY
@@ -174,6 +212,11 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     @objc private func openPreferences() {
         popover.performClose(nil)
         onOpenPreferences?()
+    }
+
+    @objc private func openAbout() {
+        popover.performClose(nil)
+        onOpenAbout?()
     }
 
     @objc private func quitApplication() {

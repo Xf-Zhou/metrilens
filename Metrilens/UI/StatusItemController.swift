@@ -20,6 +20,8 @@ final class StatusItemController: NSObject {
             button.action = #selector(togglePopover)
             button.sendAction(on: [.leftMouseUp])
             button.toolTip = "Metrilens 系统状态"
+            button.setAccessibilityLabel("Metrilens 系统状态")
+            button.setAccessibilityHelp("打开 CPU、内存、电池温度和系统热状态")
             setTitle("CPU —", warning: false)
             TaskPowerProbe.signalReadyIfRequested()
             didSignalReadiness = true
@@ -34,6 +36,14 @@ final class StatusItemController: NSObject {
         let presentation = Self.presentation(primaryMetric: primaryMetric, snapshot: snapshot)
         let warning = snapshot.thermalLevel == .serious || snapshot.thermalLevel == .critical
         setTitle(presentation.title, warning: warning, stale: presentation.staleStamp != nil)
+        var accessibilityValue = presentation.title
+        if presentation.staleStamp != nil {
+            accessibilityValue += "，数据已过期"
+        }
+        if warning {
+            accessibilityValue += "，系统热状态警告"
+        }
+        statusItem.button?.setAccessibilityValue(accessibilityValue)
         if let stamp = presentation.staleStamp {
             statusItem.button?.toolTip =
                 "Metrilens 系统状态\n数据已过期，采样于 \(Self.timeFormatter.string(from: stamp.wallTime))"
@@ -50,6 +60,7 @@ final class StatusItemController: NSObject {
                 : (stale ? NSColor.secondaryLabelColor : NSColor.labelColor)
         ]
         statusItem.button?.attributedTitle = NSAttributedString(string: title, attributes: attributes)
+        statusItem.button?.setAccessibilityValue(title)
     }
 
     @objc private func togglePopover() {

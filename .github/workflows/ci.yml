@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate runtime constraints
+        run: ./scripts/static_constraints.sh
+
+      - name: Run Python tests
+        working-directory: scripts
+        run: python3 -m unittest test_measure_lightweight.py test_release_tools.py
+
+      - name: Run Swift tests
+        run: >
+          xcodebuild
+          -project Metrilens.xcodeproj
+          -scheme Metrilens
+          -configuration Debug
+          -destination 'platform=macOS,arch=arm64'
+          -derivedDataPath .build/DerivedData
+          CODE_SIGNING_ALLOWED=NO
+          test
+
+      - name: Build Release bundle
+        run: >
+          xcodebuild
+          -project Metrilens.xcodeproj
+          -scheme Metrilens
+          -configuration Release
+          -destination 'platform=macOS,arch=arm64'
+          -derivedDataPath .build/DerivedData
+          CODE_SIGNING_ALLOWED=NO
+          build
+
+      - name: Validate Release bundle
+        run: |
+          version="$(python3 scripts/release_tools.py source-version "$PWD")"
+          python3 scripts/release_tools.py check-bundle \
+            .build/DerivedData/Build/Products/Release/Metrilens.app \
+            "$version"
