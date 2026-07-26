@@ -25,4 +25,12 @@ final class CPUProviderTests: XCTestCase {
         let ticks = CPUTicks(user: 100, system: 50, nice: 10, idle: 840)
         XCTAssertNil(CPUProvider.utilization(previous: ticks, current: ticks))
     }
+
+    func testInitialBaselineIsNotReportedAsReadFailure() {
+        let provider = CPUProvider()
+
+        _ = provider.sample(period: 1)
+
+        XCTAssertNil(provider.lastSampleFailure)
+    }
 }

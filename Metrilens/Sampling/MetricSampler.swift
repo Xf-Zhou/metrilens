@@ -8,17 +8,22 @@ final class MetricSampler {
     private let thermalProvider: ThermalStateProviding
     private let uptimeProvider: () -> TimeInterval
     private let lowPowerProvider: () -> Bool
+    private let wallTimeProvider: () -> Date
     private lazy var scheduler = ProviderDeadlineScheduler(queue: queue) { [weak self] due in
         self?.sample(due)
     }
 
     private var snapshot = SystemSnapshot.initial()
-    private var history = CPUHistoryBuffer()
+    private var cpuHistory = MetricHistoryBuffer()
+    private var memoryHistory = MetricHistoryBuffer()
     private var preferences: PreferencesSnapshot
     private var popoverVisible = false
     private var sleeping = false
+    private var isRunning = false
     private var lastPeriods: [ProviderID: TimeInterval] = [:]
     private var systemEventCoalescer = SystemEventCoalescer()
+    private var batterySessionMaximum: (value: Double, stamp: SampleStamp)?
+    private var lastFailures: [ProviderID: MetricFailure] = [:]
 
     var onSnapshot: ((SystemSnapshot) -> Void)?
 
@@ -29,7 +34,8 @@ final class MetricSampler {
         batteryProvider: BatteryTemperatureProviding = BatteryTemperatureProvider(),
         thermalProvider: ThermalStateProviding = ThermalStateProvider(),
         uptimeProvider: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-        lowPowerProvider: @escaping () -> Bool = { ProcessInfo.processInfo.isLowPowerModeEnabled }
+        lowPowerProvider: @escaping () -> Bool = { ProcessInfo.processInfo.isLowPowerModeEnabled },
+        wallTimeProvider: @escaping () -> Date = Date.init
     ) {
         self.preferences = preferences
         self.cpuProvider = cpuProvider
@@ -38,13 +44,20 @@ final class MetricSampler {
         self.thermalProvider = thermalProvider
         self.uptimeProvider = uptimeProvider
         self.lowPowerProvider = lowPowerProvider
+        self.wallTimeProvider = wallTimeProvider
     }
 
     func start() {
         queue.async {
+            self.isRunning = true
             self.snapshot.thermalLevel = self.thermalProvider.current()
             self.snapshot.batteryMaximumTemperature = self.batteryProvider.sampleMaximum()
+            self.recordFailure(
+                self.batteryProvider.lastMaximumSampleFailure,
+                provider: .battery
+            )
             self.snapshot.batteryTemperature = self.batteryProvider.currentTemperature
+            self.synchronizeBatterySessionMaximum()
             self.reconfigure(force: Set(self.effectivePeriods().keys))
             self.publish()
         }
@@ -53,7 +66,10 @@ final class MetricSampler {
     func stop() {
         queue.sync {
             scheduler.stop()
-            batteryProvider.pause()
+            batteryProvider.pause(nowUptime: uptimeProvider())
+            isRunning = false
+            lastPeriods = [:]
+            updateRuntimeState()
         }
     }
 
@@ -77,8 +93,8 @@ final class MetricSampler {
         queue.async {
             self.sleeping = true
             self.cpuProvider.resetBaseline()
-            self.batteryProvider.pause()
             self.reconfigure()
+            self.publish()
         }
     }
 
@@ -95,7 +111,12 @@ final class MetricSampler {
                 )
                 if shouldRefreshMaximum {
                     self.snapshot.batteryMaximumTemperature = self.batteryProvider.sampleMaximum()
+                    self.recordFailure(
+                        self.batteryProvider.lastMaximumSampleFailure,
+                        provider: .battery
+                    )
                     self.snapshot.batteryTemperature = self.batteryProvider.currentTemperature
+                    self.synchronizeBatterySessionMaximum()
                 }
                 self.reconfigure(force: Set(self.effectivePeriods().keys))
                 self.publish()
@@ -115,12 +136,24 @@ final class MetricSampler {
     func powerStateChanged() {
         queue.async {
             self.reconfigure()
+            self.publish()
         }
     }
 
     func thermalStateChanged() {
         queue.async {
             self.snapshot.thermalLevel = self.thermalProvider.current()
+            self.publish()
+        }
+    }
+
+    func resetBatterySessionMaximum() {
+        queue.async {
+            guard self.snapshot.batteryTemperature.freshValue != nil else {
+                return
+            }
+            self.batterySessionMaximum = nil
+            self.synchronizeBatterySessionMaximum(resetToCurrent: true)
             self.publish()
         }
     }
@@ -154,12 +187,22 @@ final class MetricSampler {
             case .cpu:
                 snapshot.cpu = cpuProvider.sample(period: period)
                 if case let .available(metric, stamp) = snapshot.cpu {
-                    history.append(percent: metric.percent, at: stamp.uptime)
+                    cpuHistory.append(percent: metric.percent, at: stamp.uptime)
                 }
+                recordFailure(cpuProvider.lastSampleFailure, provider: .cpu)
             case .memory:
                 snapshot.memory = memoryProvider.sample(period: period)
+                if case let .available(metric, stamp) = snapshot.memory {
+                    memoryHistory.append(percent: metric.percent, at: stamp.uptime)
+                }
+                recordFailure(memoryProvider.lastSampleFailure, provider: .memory)
             case .battery:
                 snapshot.batteryTemperature = batteryProvider.sampleCurrent(period: period)
+                synchronizeBatterySessionMaximum()
+                recordFailure(
+                    batteryProvider.lastCurrentSampleFailure,
+                    provider: .battery
+                )
                 batteryCapabilityChanged = !batteryProvider.shouldScheduleRoutineCurrentSample
             }
             scheduler.complete(provider)
@@ -168,8 +211,7 @@ final class MetricSampler {
             reconfigure()
         }
         let now = uptimeProvider()
-        snapshot.cpuHistory = history.values(now: now)
-        snapshot.cpuHistoryCollecting = history.isCollecting(now: now)
+        updateHistories(now: now)
         publish()
     }
 
@@ -180,13 +222,18 @@ final class MetricSampler {
         if lastPeriods[.cpu] != nil, periods[.cpu] == nil {
             cpuProvider.pause(nowUptime: now)
             snapshot.cpu = cpuProvider.state
-            history.clear()
+            cpuHistory.clear()
             snapshot.cpuHistory = []
             snapshot.cpuHistoryCollecting = true
+            snapshot.cpuHistorySummary = nil
         }
         if lastPeriods[.memory] != nil, periods[.memory] == nil {
             memoryProvider.pause(nowUptime: now)
             snapshot.memory = memoryProvider.state
+            memoryHistory.clear()
+            snapshot.memoryHistory = []
+            snapshot.memoryHistoryCollecting = true
+            snapshot.memoryHistorySummary = nil
         }
         if lastPeriods[.cpu] == nil, periods[.cpu] != nil {
             cpuProvider.expireCachedValue(nowUptime: now)
@@ -197,10 +244,28 @@ final class MetricSampler {
             memoryProvider.expireCachedValue(nowUptime: now)
             snapshot.memory = memoryProvider.state
         }
+        if let oldPeriod = lastPeriods[.cpu],
+           let newPeriod = periods[.cpu],
+           oldPeriod != newPeriod {
+            cpuHistory.clear()
+            snapshot.cpuHistory = []
+            snapshot.cpuHistoryCollecting = true
+            snapshot.cpuHistorySummary = nil
+        }
+        if let oldPeriod = lastPeriods[.memory],
+           let newPeriod = periods[.memory],
+           oldPeriod != newPeriod {
+            memoryHistory.clear()
+            snapshot.memoryHistory = []
+            snapshot.memoryHistoryCollecting = true
+            snapshot.memoryHistorySummary = nil
+        }
         if lastPeriods[.battery] != nil, periods[.battery] == nil {
-            batteryProvider.pause()
+            batteryProvider.pause(nowUptime: now)
+            snapshot.batteryTemperature = batteryProvider.currentTemperature
         }
         lastPeriods = periods
+        updateRuntimeState()
         scheduler.update(periods: periods, force: force.intersection(periods.keys))
     }
 
@@ -228,7 +293,12 @@ final class MetricSampler {
         let requested = providers ?? Set(effectivePeriods().keys)
         if refreshMaximum {
             snapshot.batteryMaximumTemperature = batteryProvider.sampleMaximum()
+            recordFailure(
+                batteryProvider.lastMaximumSampleFailure,
+                provider: .battery
+            )
             snapshot.batteryTemperature = batteryProvider.currentTemperature
+            synchronizeBatterySessionMaximum()
         }
         reconfigure(force: requested)
         publish()
@@ -237,9 +307,81 @@ final class MetricSampler {
     private func publish() {
         batteryProvider.expireMaximumIfNeeded(nowUptime: uptimeProvider())
         snapshot.batteryMaximumTemperature = batteryProvider.maximumTemperature
+        updateHistories(now: uptimeProvider())
+        updateRuntimeState()
         let value = snapshot
         DispatchQueue.main.async { [weak self] in
             self?.onSnapshot?(value)
+        }
+    }
+
+    private func updateHistories(now: TimeInterval) {
+        snapshot.cpuHistory = cpuHistory.values(now: now)
+        snapshot.cpuHistoryCollecting = cpuHistory.isCollecting(now: now)
+        snapshot.cpuHistorySummary = cpuHistory.summary(now: now)
+        snapshot.memoryHistory = memoryHistory.values(now: now)
+        snapshot.memoryHistoryCollecting = memoryHistory.isCollecting(now: now)
+        snapshot.memoryHistorySummary = memoryHistory.summary(now: now)
+    }
+
+    private func updateRuntimeState() {
+        snapshot.samplingRuntime = SamplingRuntimeState(
+            isRunning: isRunning,
+            isSleeping: sleeping,
+            isPopoverVisible: popoverVisible,
+            effectivePeriods: lastPeriods
+        )
+    }
+
+    private func synchronizeBatterySessionMaximum(resetToCurrent: Bool = false) {
+        switch snapshot.batteryTemperature {
+        case let .available(value, stamp):
+            if resetToCurrent
+                || batterySessionMaximum == nil
+                || value > (batterySessionMaximum?.value ?? value) {
+                batterySessionMaximum = (value, stamp)
+            }
+            if let batterySessionMaximum {
+                snapshot.batterySessionMaximumTemperature = .available(
+                    batterySessionMaximum.value,
+                    batterySessionMaximum.stamp
+                )
+            }
+        case let .unsupported(failure):
+            if failure == .noHardware {
+                batterySessionMaximum = nil
+                snapshot.batterySessionMaximumTemperature = .unsupported(failure)
+            } else if batterySessionMaximum == nil {
+                snapshot.batterySessionMaximumTemperature = .unsupported(failure)
+            }
+        case let .unavailable(failure):
+            if batterySessionMaximum == nil {
+                snapshot.batterySessionMaximumTemperature = .unavailable(failure)
+            }
+        case .stale:
+            break
+        }
+    }
+
+    private func recordFailure(
+        _ failure: MetricFailure?,
+        provider: ProviderID
+    ) {
+        guard let failure else {
+            lastFailures.removeValue(forKey: provider)
+            return
+        }
+        guard lastFailures[provider] != failure else { return }
+        lastFailures[provider] = failure
+        snapshot.recentErrors.append(
+            RecentMetricError(
+                provider: provider,
+                failure: failure,
+                wallTime: wallTimeProvider()
+            )
+        )
+        if snapshot.recentErrors.count > 5 {
+            snapshot.recentErrors.removeFirst(snapshot.recentErrors.count - 5)
         }
     }
 }

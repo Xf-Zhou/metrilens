@@ -2,62 +2,85 @@ import AppKit
 
 struct StatusMetricPresentation: Equatable {
     let title: String
-    let staleStamp: SampleStamp?
+    let staleStamps: [SampleStamp]
+    let severity: MetricVisualSeverity
 }
 
 final class StatusItemController: NSObject {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    private var primaryMetric: PrimaryMetric
+    private var preferences: PreferencesSnapshot
     private var didSignalReadiness = false
 
     var onToggle: ((NSStatusBarButton) -> Void)?
 
-    init(primaryMetric: PrimaryMetric) {
-        self.primaryMetric = primaryMetric
+    init(preferences: PreferencesSnapshot) {
+        self.preferences = preferences
         super.init()
         if let button = statusItem.button {
             button.target = self
             button.action = #selector(togglePopover)
             button.sendAction(on: [.leftMouseUp])
-            button.toolTip = "Metrilens 系统状态"
-            button.setAccessibilityLabel("Metrilens 系统状态")
-            button.setAccessibilityHelp("打开 CPU、内存、电池温度和系统热状态")
-            setTitle("CPU —", warning: false)
+            updateLocalizedMetadata()
+            setTitle("CPU —", severity: .normal)
             TaskPowerProbe.signalReadyIfRequested()
             didSignalReadiness = true
         }
     }
 
-    func setPrimaryMetric(_ metric: PrimaryMetric) {
-        primaryMetric = metric
+    func setPreferences(_ preferences: PreferencesSnapshot) {
+        self.preferences = preferences
+        updateLocalizedMetadata()
     }
 
     func update(snapshot: SystemSnapshot) {
-        let presentation = Self.presentation(primaryMetric: primaryMetric, snapshot: snapshot)
-        let warning = snapshot.thermalLevel == .serious || snapshot.thermalLevel == .critical
-        setTitle(presentation.title, warning: warning, stale: presentation.staleStamp != nil)
+        let presentation = Self.presentation(preferences: preferences, snapshot: snapshot)
+        let severity = max(
+            presentation.severity,
+            MetricPresentationPolicy.thermalSeverity(snapshot.thermalLevel)
+        )
+        setTitle(
+            presentation.title,
+            severity: severity,
+            stale: !presentation.staleStamps.isEmpty
+        )
         var accessibilityValue = presentation.title
-        if presentation.staleStamp != nil {
-            accessibilityValue += "，数据已过期"
+        if !presentation.staleStamps.isEmpty {
+            accessibilityValue += preferences.language.text(
+                "，数据已过期",
+                ", data is stale"
+            )
         }
-        if warning {
-            accessibilityValue += "，系统热状态警告"
+        if MetricPresentationPolicy.thermalSeverity(snapshot.thermalLevel) >= .warning {
+            accessibilityValue += preferences.language.text(
+                "，系统热状态警告",
+                ", system thermal warning"
+            )
         }
         statusItem.button?.setAccessibilityValue(accessibilityValue)
-        if let stamp = presentation.staleStamp {
+        if let stamp = presentation.staleStamps.max(by: {
+            $0.wallTime < $1.wallTime
+        }) {
             statusItem.button?.toolTip =
-                "Metrilens 系统状态\n数据已过期，采样于 \(Self.timeFormatter.string(from: stamp.wallTime))"
+                preferences.language.text(
+                    "Metrilens 系统状态\n数据已过期，采样于 \(Self.timeFormatter.string(from: stamp.wallTime))",
+                    "Metrilens System Status\nData is stale; sampled at \(Self.timeFormatter.string(from: stamp.wallTime))"
+                )
         } else {
-            statusItem.button?.toolTip = "Metrilens 系统状态"
+            statusItem.button?.toolTip = preferences.language.text(
+                "Metrilens 系统状态",
+                "Metrilens System Status"
+            )
         }
     }
 
-    private func setTitle(_ title: String, warning: Bool, stale: Bool = false) {
+    private func setTitle(
+        _ title: String,
+        severity: MetricVisualSeverity,
+        stale: Bool = false
+    ) {
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .medium),
-            .foregroundColor: warning
-                ? NSColor.systemOrange
-                : (stale ? NSColor.secondaryLabelColor : NSColor.labelColor)
+            .foregroundColor: Self.color(severity: severity, stale: stale)
         ]
         statusItem.button?.attributedTitle = NSAttributedString(string: title, attributes: attributes)
         statusItem.button?.setAccessibilityValue(title)
@@ -76,43 +99,115 @@ final class StatusItemController: NSObject {
         primaryMetric: PrimaryMetric,
         snapshot: SystemSnapshot
     ) -> StatusMetricPresentation {
-        switch primaryMetric {
+        presentation(
+            preferences: PreferencesSnapshot(
+                primaryMetric: primaryMetric,
+                refreshInterval: 1,
+                launchAtLogin: false,
+                showsSparkline: true
+            ),
+            snapshot: snapshot
+        )
+    }
+
+    static func presentation(
+        preferences: PreferencesSnapshot,
+        snapshot: SystemSnapshot
+    ) -> StatusMetricPresentation {
+        let metrics = preferences.displayedMetrics
+        let segments = metrics.map {
+            segment(metric: $0, snapshot: snapshot)
+        }
+        let staleStamps = segments.compactMap(\.staleStamp)
+        let staleSuffix = staleStamps.isEmpty ? "" : " ⏱"
+        return StatusMetricPresentation(
+            title: segments.map(\.title).joined(separator: " · ") + staleSuffix,
+            staleStamps: staleStamps,
+            severity: segments.map(\.severity).max() ?? .normal
+        )
+    }
+
+    private static func segment(
+        metric: PrimaryMetric,
+        snapshot: SystemSnapshot
+    ) -> MetricSegment {
+        switch metric {
         case .cpu:
-            return percentTitle(prefix: "CPU", state: snapshot.cpu.map(\.percent))
+            return percentSegment(prefix: "CPU", state: snapshot.cpu.map(\.percent))
         case .memory:
-            return percentTitle(prefix: "MEM", state: snapshot.memory.map(\.percent))
+            return percentSegment(prefix: "MEM", state: snapshot.memory.map(\.percent))
         case .battery:
-            return temperatureTitle(state: snapshot.batteryTemperature)
+            return temperatureSegment(state: snapshot.batteryTemperature)
         }
     }
 
-    private static func percentTitle<T>(
+    private static func percentSegment<T>(
         prefix: String,
         state: MetricState<T>
-    ) -> StatusMetricPresentation where T: PercentProviding {
+    ) -> MetricSegment where T: PercentProviding {
         guard let value = state.value else {
-            return StatusMetricPresentation(title: "\(prefix) —", staleStamp: nil)
+            return MetricSegment(
+                title: "\(prefix) —",
+                staleStamp: nil,
+                severity: .normal
+            )
         }
-        let staleStamp = state.isStale ? state.stamp : nil
-        let suffix = staleStamp == nil ? "" : " ·"
-        return StatusMetricPresentation(
-            title: String(format: "\(prefix) %.0f%%%@", value.percentValue, suffix),
-            staleStamp: staleStamp
+        return MetricSegment(
+            title: String(format: "\(prefix) %.0f%%", value.percentValue),
+            staleStamp: state.isStale ? state.stamp : nil,
+            severity: .normal
         )
     }
 
-    private static func temperatureTitle(
+    private static func temperatureSegment(
         state: MetricState<Double>
-    ) -> StatusMetricPresentation {
+    ) -> MetricSegment {
         guard let value = state.value else {
-            return StatusMetricPresentation(title: "BAT —", staleStamp: nil)
+            return MetricSegment(
+                title: "BAT —",
+                staleStamp: nil,
+                severity: .normal
+            )
         }
-        let staleStamp = state.isStale ? state.stamp : nil
-        let suffix = staleStamp == nil ? "" : " ·"
-        return StatusMetricPresentation(
-            title: String(format: "BAT %.1f°%@", value, suffix),
-            staleStamp: staleStamp
+        return MetricSegment(
+            title: String(format: "BAT %.1f°", value),
+            staleStamp: state.isStale ? state.stamp : nil,
+            severity: MetricPresentationPolicy.temperatureSeverity(value)
         )
+    }
+
+    private func updateLocalizedMetadata() {
+        statusItem.button?.toolTip = preferences.language.text(
+            "Metrilens 系统状态",
+            "Metrilens System Status"
+        )
+        statusItem.button?.setAccessibilityLabel(
+            preferences.language.text(
+                "Metrilens 系统状态",
+                "Metrilens System Status"
+            )
+        )
+        statusItem.button?.setAccessibilityHelp(
+            preferences.language.text(
+                "打开 CPU、内存、电池温度和系统热状态",
+                "Open CPU, memory, battery temperature, and thermal status"
+            )
+        )
+    }
+
+    private static func color(
+        severity: MetricVisualSeverity,
+        stale: Bool
+    ) -> NSColor {
+        if stale && severity == .normal {
+            return .secondaryLabelColor
+        }
+        switch severity {
+        case .normal: return .labelColor
+        case .caution: return .systemYellow
+        case .warning: return .systemOrange
+        case .critical: return .systemRed
+        }
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -120,6 +215,12 @@ final class StatusItemController: NSObject {
         formatter.dateFormat = "HH:mm:ss"
         return formatter
     }()
+}
+
+private struct MetricSegment {
+    let title: String
+    let staleStamp: SampleStamp?
+    let severity: MetricVisualSeverity
 }
 
 private protocol PercentProviding {

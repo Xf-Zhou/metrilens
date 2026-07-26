@@ -79,6 +79,18 @@ final class SamplingAndHistoryTests: XCTestCase {
         XCTAssertTrue(buffer.isCollecting(now: 64))
     }
 
+    func testMetricHistorySummaryUsesOnlyCurrentWindow() {
+        var buffer = MetricHistoryBuffer(window: 60, capacity: 10)
+        buffer.append(percent: 10, at: 0)
+        buffer.append(percent: 40, at: 30)
+        buffer.append(percent: 70, at: 61)
+
+        XCTAssertEqual(
+            buffer.summary(now: 61),
+            MetricHistorySummary(average: 55, peak: 70)
+        )
+    }
+
     func testSamplingPolicyForClosedPopover() {
         let cpu = PreferencesSnapshot(
             primaryMetric: .cpu,
@@ -93,7 +105,7 @@ final class SamplingAndHistoryTests: XCTestCase {
                 lowPower: false,
                 sleeping: false
             ),
-            [.cpu: 1, .battery: 60]
+            [.cpu: 1]
         )
 
         let battery = PreferencesSnapshot(
@@ -145,6 +157,47 @@ final class SamplingAndHistoryTests: XCTestCase {
                 lowPower: false,
                 sleeping: true
             ).isEmpty
+        )
+    }
+
+    func testCompactModeSamplesEverySelectedMetric() {
+        let preferences = PreferencesSnapshot(
+            primaryMetric: .cpu,
+            refreshInterval: 2,
+            launchAtLogin: false,
+            showsSparkline: true,
+            statusDisplayMode: .compact,
+            compactMetrics: [.memory, .battery]
+        )
+
+        XCTAssertEqual(
+            SamplingPolicy.resolve(
+                preferences: preferences,
+                popoverVisible: false,
+                lowPower: false,
+                sleeping: false
+            ),
+            [.memory: 2, .battery: 30]
+        )
+    }
+
+    func testAlertsKeepCPUAndMemorySamplingActiveWhenPopoverIsClosed() {
+        let preferences = PreferencesSnapshot(
+            primaryMetric: .battery,
+            refreshInterval: 2,
+            launchAtLogin: false,
+            showsSparkline: true,
+            alertsEnabled: true
+        )
+
+        XCTAssertEqual(
+            SamplingPolicy.resolve(
+                preferences: preferences,
+                popoverVisible: false,
+                lowPower: false,
+                sleeping: false
+            ),
+            [.cpu: 2, .memory: 2, .battery: 30]
         )
     }
 }

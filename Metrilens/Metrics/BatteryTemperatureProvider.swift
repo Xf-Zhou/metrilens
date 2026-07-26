@@ -20,9 +20,11 @@ protocol BatteryTemperatureProviding: AnyObject {
     var currentTemperature: MetricState<Double> { get }
     var maximumTemperature: MetricState<Double> { get }
     var shouldScheduleRoutineCurrentSample: Bool { get }
+    var lastCurrentSampleFailure: MetricFailure? { get }
+    var lastMaximumSampleFailure: MetricFailure? { get }
     func sampleCurrent(period: TimeInterval) -> MetricState<Double>
     func sampleMaximum() -> MetricState<Double>
-    func pause()
+    func pause(nowUptime: TimeInterval)
     func resetCapabilities()
     func expireMaximumIfNeeded(nowUptime: TimeInterval)
 }
@@ -36,8 +38,11 @@ final class BatteryTemperatureProvider: BatteryTemperatureProviding {
     private var candidate: TemperatureCandidate?
     private var lastAccepted: (value: Double, stamp: SampleStamp)?
     private var hasProbedCurrentCapability = false
+    private var currentCacheTTL: TimeInterval = 60
 
     private(set) var capabilities = BatteryCapabilities()
+    private(set) var lastCurrentSampleFailure: MetricFailure?
+    private(set) var lastMaximumSampleFailure: MetricFailure?
 
     var currentTemperature: MetricState<Double> { currentState.state }
     var maximumTemperature: MetricState<Double> { maximumState.state }
@@ -53,12 +58,15 @@ final class BatteryTemperatureProvider: BatteryTemperatureProviding {
     }
 
     func sampleCurrent(period: TimeInterval) -> MetricState<Double> {
+        currentCacheTTL = max(60, period * 2)
+        lastCurrentSampleFailure = nil
         let now = SampleStamp.now()
         switch propertiesReader() {
         case let .success(properties):
             hasProbedCurrentCapability = true
             capabilities.hardwarePresent = true
             guard properties["Temperature"] != nil else {
+                lastCurrentSampleFailure = .fieldMissing
                 capabilities.currentFieldPresent = false
                 capabilities.currentDecoderSupported = false
                 candidate = nil
@@ -71,6 +79,7 @@ final class BatteryTemperatureProvider: BatteryTemperatureProviding {
                 capabilities.currentDecoderSupported = true
                 return acceptDecoded(value, stamp: now, period: period)
             case let .failure(error):
+                lastCurrentSampleFailure = error
                 candidate = nil
                 if error == .unsupportedEncoding {
                     capabilities.currentDecoderSupported = false
@@ -84,6 +93,7 @@ final class BatteryTemperatureProvider: BatteryTemperatureProviding {
                 )
             }
         case let .failure(error):
+            lastCurrentSampleFailure = error
             candidate = nil
             if error == .noHardware {
                 hasProbedCurrentCapability = true
@@ -97,12 +107,14 @@ final class BatteryTemperatureProvider: BatteryTemperatureProviding {
     }
 
     func sampleMaximum() -> MetricState<Double> {
+        lastMaximumSampleFailure = nil
         switch propertiesReader() {
         case let .success(properties):
             capabilities.hardwarePresent = true
             guard let batteryData = Self.dictionary(properties["BatteryData"]),
                   let lifetimeData = Self.dictionary(batteryData["LifetimeData"]),
                   let raw = lifetimeData["MaximumTemperature"] else {
+                lastMaximumSampleFailure = .fieldMissing
                 capabilities.maximumFieldPresent = false
                 capabilities.maximumDecoderSupported = false
                 return maximumState.recordUnsupported(.fieldMissing)
@@ -113,6 +125,7 @@ final class BatteryTemperatureProvider: BatteryTemperatureProviding {
                 capabilities.maximumDecoderSupported = true
                 return maximumState.recordSuccess(value)
             case let .failure(error):
+                lastMaximumSampleFailure = error
                 if error == .unsupportedEncoding {
                     capabilities.maximumDecoderSupported = false
                     return maximumState.recordUnsupported(error)
@@ -121,6 +134,7 @@ final class BatteryTemperatureProvider: BatteryTemperatureProviding {
                 return maximumState.recordFailure(error, failureLimit: 2, ttl: 3_600)
             }
         case let .failure(error):
+            lastMaximumSampleFailure = error
             if error == .noHardware {
                 capabilities = BatteryCapabilities()
                 hasProbedCurrentCapability = true
@@ -133,8 +147,12 @@ final class BatteryTemperatureProvider: BatteryTemperatureProviding {
         }
     }
 
-    func pause() {
+    func pause(nowUptime: TimeInterval) {
         candidate = nil
+        _ = currentState.preserveFreshValueAsStale(
+            nowUptime: nowUptime,
+            ttl: currentCacheTTL
+        )
     }
 
     func resetCapabilities() {
@@ -192,6 +210,7 @@ final class BatteryTemperatureProvider: BatteryTemperatureProviding {
                 lastAccepted = (value, stamp)
                 return currentState.recordSuccess(value, stamp: stamp)
             } else {
+                lastCurrentSampleFailure = .outlierJump
                 candidate = makeCandidate(value: value, now: stamp.uptime, period: period)
                 return candidateOutput()
             }
@@ -214,6 +233,7 @@ final class BatteryTemperatureProvider: BatteryTemperatureProviding {
         if let lastAccepted,
            (requireJumpConfirmation || stamp.uptime - lastAccepted.stamp.uptime <= 120),
            abs(value - lastAccepted.value) > 15 {
+            lastCurrentSampleFailure = .outlierJump
             candidate = makeCandidate(value: value, now: stamp.uptime, period: period)
             return candidateOutput()
         }

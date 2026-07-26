@@ -12,6 +12,7 @@ struct MemoryCounters {
 
 protocol MemoryProviding: AnyObject {
     var state: MetricState<MemoryMetric> { get }
+    var lastSampleFailure: MetricFailure? { get }
     func pause(nowUptime: TimeInterval)
     func expireCachedValue(nowUptime: TimeInterval)
     func sample(period: TimeInterval) -> MetricState<MemoryMetric>
@@ -22,6 +23,7 @@ final class MemoryProvider: MemoryProviding {
     private var cacheTTL: TimeInterval = 10
 
     var state: MetricState<MemoryMetric> { stateMachine.state }
+    private(set) var lastSampleFailure: MetricFailure?
 
     func pause(nowUptime: TimeInterval) {
         _ = stateMachine.preserveFreshValueAsStale(
@@ -43,8 +45,10 @@ final class MemoryProvider: MemoryProviding {
         case let .success(counters):
             switch Self.calculate(counters) {
             case let .success(metric):
+                lastSampleFailure = nil
                 return stateMachine.recordSuccess(metric)
             case let .failure(error):
+                lastSampleFailure = error
                 return stateMachine.recordFailure(
                     error,
                     failureLimit: 3,
@@ -52,6 +56,7 @@ final class MemoryProvider: MemoryProviding {
                 )
             }
         case let .failure(error):
+            lastSampleFailure = error
             return stateMachine.recordFailure(
                 error,
                 failureLimit: 3,

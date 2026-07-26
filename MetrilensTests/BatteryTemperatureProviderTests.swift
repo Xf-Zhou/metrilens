@@ -167,7 +167,7 @@ final class BatteryTemperatureProviderTests: XCTestCase {
         let provider = BatteryTemperatureProvider()
         assertAvailable(provider.acceptDecoded(35, stamp: stamp(0), period: 10), equals: 35)
         assertStale(provider.acceptDecoded(60, stamp: stamp(1), period: 10), equals: 35)
-        provider.pause()
+        provider.pause(nowUptime: 100)
         assertStale(provider.acceptDecoded(60, stamp: stamp(2), period: 10), equals: 35)
         provider.resetCapabilities()
         assertAvailable(provider.acceptDecoded(60, stamp: stamp(3), period: 10), equals: 60)

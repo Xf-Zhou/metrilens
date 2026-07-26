@@ -9,22 +9,28 @@ struct SamplingPolicy {
     ) -> [ProviderID: TimeInterval] {
         guard !sleeping else { return [:] }
         let activePeriod = lowPower ? max(5, preferences.refreshInterval) : preferences.refreshInterval
-        let batteryPeriod: TimeInterval
-        if lowPower {
-            batteryPeriod = 120
-        } else if popoverVisible {
-            batteryPeriod = 10
-        } else if preferences.primaryMetric == .battery {
-            batteryPeriod = 30
-        } else {
-            batteryPeriod = 60
+        let displayedMetrics = Set(preferences.displayedMetrics)
+        let samplesCPU = popoverVisible
+            || displayedMetrics.contains(.cpu)
+            || preferences.alertsEnabled
+        let samplesMemory = popoverVisible
+            || displayedMetrics.contains(.memory)
+            || preferences.alertsEnabled
+        let samplesBattery = displayedMetrics.contains(.battery)
+        var result: [ProviderID: TimeInterval] = [:]
+        if popoverVisible || samplesBattery {
+            if lowPower {
+                result[.battery] = 120
+            } else if popoverVisible {
+                result[.battery] = 10
+            } else {
+                result[.battery] = 30
+            }
         }
-
-        var result: [ProviderID: TimeInterval] = [.battery: batteryPeriod]
-        if popoverVisible || preferences.primaryMetric == .cpu {
+        if samplesCPU {
             result[.cpu] = activePeriod
         }
-        if popoverVisible || preferences.primaryMetric == .memory {
+        if samplesMemory {
             result[.memory] = activePeriod
         }
         return result

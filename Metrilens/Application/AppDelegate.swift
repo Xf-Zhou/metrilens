@@ -4,13 +4,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let preferences = AppPreferences()
     private let loginItemController = LoginItemController()
     private lazy var sampler = MetricSampler(preferences: preferences.snapshot)
-    private lazy var statusController = StatusItemController(primaryMetric: preferences.snapshot.primaryMetric)
-    private lazy var popoverController = PopoverController(showsSparkline: preferences.snapshot.showsSparkline)
+    private lazy var statusController = StatusItemController(
+        preferences: preferences.snapshot
+    )
+    private lazy var popoverController = PopoverController(
+        preferences: preferences.snapshot
+    )
     private lazy var preferencesController = PreferencesController(
         preferences: preferences,
         loginItemController: loginItemController
     )
-    private lazy var aboutController = AboutController { [weak self] in
+    private lazy var aboutController = AboutController(
+        language: preferences.snapshot.language
+    ) { [weak self] in
         guard let self else { return "Metrilens 诊断信息\nstatus=unavailable" }
         return DiagnosticReport.make(
             build: .current(),
@@ -19,6 +25,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             snapshot: self.latestSnapshot
         )
     }
+    private lazy var alertController = MetricAlertController(
+        preferences: preferences.snapshot
+    )
     private let lifecycleBridge = LifecycleEventBridge()
     private var taskPowerProbe: TaskPowerProbe?
     private var latestSnapshot = SystemSnapshot.initial()
@@ -53,6 +62,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popoverController.onOpenAbout = { [weak self] in
             self?.aboutController.show()
         }
+        popoverController.onResetBatterySessionMaximum = { [weak self] in
+            self?.sampler.resetBatterySessionMaximum()
+        }
         popoverController.onQuit = {
             NSApp.terminate(nil)
         }
@@ -61,12 +73,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.latestSnapshot = snapshot
             self?.statusController.update(snapshot: snapshot)
             self?.popoverController.update(snapshot: snapshot)
+            self?.alertController.handle(snapshot: snapshot)
         }
 
         preferences.onChange = { [weak self] value in
-            self?.statusController.setPrimaryMetric(value.primaryMetric)
-            self?.popoverController.setShowsSparkline(value.showsSparkline)
-            self?.sampler.updatePreferences(value)
+            guard let self else { return }
+            self.statusController.setPreferences(value)
+            self.statusController.update(snapshot: self.latestSnapshot)
+            self.popoverController.setPreferences(value)
+            self.popoverController.update(snapshot: self.latestSnapshot)
+            self.preferencesController.setPreferences(value)
+            self.aboutController.setLanguage(value.language)
+            self.alertController.setPreferences(value)
+            self.sampler.updatePreferences(value)
         }
 
         lifecycleBridge.onWillSleep = { [weak self] in self?.sampler.systemWillSleep() }

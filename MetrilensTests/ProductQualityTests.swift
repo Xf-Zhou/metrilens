@@ -24,6 +24,13 @@ final class ProductQualityTests: XCTestCase {
         defaults.set(3.0, forKey: "refreshInterval")
         defaults.set("yes", forKey: "launchAtLogin")
         defaults.set(["unexpected"], forKey: "showsSparkline")
+        defaults.set("wide", forKey: "statusDisplayMode")
+        defaults.set(["cpu", "cpu"], forKey: "compactMetrics")
+        defaults.set("fr", forKey: "language")
+        defaults.set("yes", forKey: "alertsEnabled")
+        defaults.set(87, forKey: "cpuAlertThreshold")
+        defaults.set(true, forKey: "memoryAlertThreshold")
+        defaults.set(15, forKey: "alertSustainDuration")
 
         let preferences = AppPreferences(defaults: defaults)
 
@@ -41,6 +48,13 @@ final class ProductQualityTests: XCTestCase {
         XCTAssertNil(persistent["refreshInterval"])
         XCTAssertNil(persistent["launchAtLogin"])
         XCTAssertNil(persistent["showsSparkline"])
+        XCTAssertNil(persistent["statusDisplayMode"])
+        XCTAssertNil(persistent["compactMetrics"])
+        XCTAssertNil(persistent["language"])
+        XCTAssertNil(persistent["alertsEnabled"])
+        XCTAssertNil(persistent["cpuAlertThreshold"])
+        XCTAssertNil(persistent["memoryAlertThreshold"])
+        XCTAssertNil(persistent["alertSustainDuration"])
     }
 
     func testResetPreferencesRestoresEveryDefaultAndNotifiesOnce() {
@@ -49,6 +63,13 @@ final class ProductQualityTests: XCTestCase {
         preferences.setRefreshInterval(5)
         preferences.setLaunchAtLogin(true)
         preferences.setShowsSparkline(false)
+        preferences.setStatusDisplayMode(.compact)
+        preferences.setCompactMetrics([.memory])
+        preferences.setLanguage(.english)
+        preferences.setAlertsEnabled(true)
+        preferences.setCPUAlertThreshold(95)
+        preferences.setMemoryAlertThreshold(80)
+        preferences.setAlertSustainDuration(120)
 
         var notifications = 0
         preferences.onChange = { _ in notifications += 1 }
@@ -120,14 +141,33 @@ final class ProductQualityTests: XCTestCase {
             "system.arch=",
             "system.low_power=",
             "settings.primary_metric=",
+            "settings.display_mode=",
+            "settings.compact_metrics=",
             "settings.refresh_seconds=",
             "settings.launch_at_login=",
             "settings.sparkline=",
+            "settings.language=",
+            "settings.alerts_enabled=",
+            "settings.cpu_alert_threshold=",
+            "settings.memory_alert_threshold=",
+            "settings.alert_sustain_seconds=",
+            "sampling.running=",
+            "sampling.sleeping=",
+            "sampling.popover_visible=",
+            "sampling.cpu_period=",
+            "sampling.memory_period=",
+            "sampling.battery_period=",
             "metrics.cpu=",
+            "metrics.cpu_average=",
+            "metrics.cpu_peak=",
             "metrics.memory=",
+            "metrics.memory_average=",
+            "metrics.memory_peak=",
             "metrics.battery_temperature=",
+            "metrics.battery_session_maximum=",
             "metrics.battery_maximum=",
-            "metrics.thermal="
+            "metrics.thermal=",
+            "metrics.recent_errors="
         ]
         let lines = report.split(separator: "\n").map(String.init)
         XCTAssertEqual(lines.count, allowedPrefixes.count)
@@ -142,7 +182,9 @@ final class ProductQualityTests: XCTestCase {
             "serial",
             "home_directory",
             "ip_address",
-            "process_id"
+            "process_id",
+            "path=",
+            "pid="
         ] {
             XCTAssertFalse(report.localizedCaseInsensitiveContains(forbidden))
         }
@@ -154,7 +196,9 @@ final class ProductQualityTests: XCTestCase {
             "系统架构",
             "低电量模式状态",
             "应用设置",
-            "指标状态"
+            "采样状态",
+            "指标状态",
+            "最近的指标读取错误"
         ] {
             XCTAssertTrue(
                 disclosure.contains(disclosedField),
@@ -173,5 +217,24 @@ final class ProductQualityTests: XCTestCase {
         controller.focusKeyboardInput()
 
         XCTAssertEqual(focusRequests, 1)
+    }
+
+    func testEnglishLocalizationAndDiagnosticFilename() {
+        XCTAssertEqual(AppText.metricName(.memory, language: .english), "Memory")
+        XCTAssertEqual(
+            AppText.failureReason(.noHardware, language: .english),
+            "No Battery"
+        )
+        XCTAssertTrue(
+            DiagnosticReport.privacyDisclosure(language: .english)
+                .contains("do not include usernames")
+        )
+
+        let filename = AboutController.diagnosticFilename(
+            date: Date(timeIntervalSince1970: 1_000)
+        )
+        XCTAssertTrue(filename.hasPrefix("Metrilens-Diagnostics-"))
+        XCTAssertTrue(filename.hasSuffix(".txt"))
+        XCTAssertFalse(filename.contains("/"))
     }
 }

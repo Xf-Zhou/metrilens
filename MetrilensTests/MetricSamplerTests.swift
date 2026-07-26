@@ -56,8 +56,9 @@ final class MetricSamplerTests: XCTestCase {
 
         let (snapshot, scheduler) = sampler.debugStateForTesting()
         guard case .unsupported(.noHardware) = snapshot.batteryTemperature,
-              case .unsupported(.noHardware) = snapshot.batteryMaximumTemperature else {
-            return XCTFail("Wake capability probe must synchronize both battery states")
+              case .unsupported(.noHardware) = snapshot.batteryMaximumTemperature,
+              case .unsupported(.noHardware) = snapshot.batterySessionMaximumTemperature else {
+            return XCTFail("Wake capability probe must synchronize all battery states")
         }
         XCTAssertFalse(scheduler.scheduledProviders.contains(.battery))
         sampler.stop()
@@ -113,6 +114,27 @@ final class MetricSamplerTests: XCTestCase {
             return XCTFail("Paused memory must preserve a fresh value as stale")
         }
         XCTAssertEqual(metric.percent, 50)
+        sampler.stop()
+    }
+
+    func testRemovingBatteryDisplayMarksCurrentTemperatureStale() {
+        let battery = FakeBatteryProvider()
+        let sampled = expectation(description: "initial battery sample")
+        battery.onCurrentSample = { sampled.fulfill() }
+        let sampler = makeSampler(primaryMetric: .battery, battery: battery)
+        sampler.start()
+        wait(for: [sampled], timeout: 1)
+        sampler.waitUntilIdleForTesting()
+
+        sampler.updatePreferences(preferences(.cpu))
+        sampler.waitUntilIdleForTesting()
+
+        let (snapshot, scheduler) = sampler.debugStateForTesting()
+        guard case let .stale(value, _) = snapshot.batteryTemperature else {
+            return XCTFail("A paused battery reading must not remain fresh")
+        }
+        XCTAssertEqual(value, 35)
+        XCTAssertFalse(scheduler.scheduledProviders.contains(.battery))
         sampler.stop()
     }
 
@@ -188,6 +210,88 @@ final class MetricSamplerTests: XCTestCase {
         sampler.stop()
     }
 
+    func testChangingSamplePeriodRestartsCPUAndMemoryHistory() {
+        let cpu = FakeCPUProvider()
+        let memory = FakeMemoryProvider()
+        let initialSamples = expectation(description: "initial samples")
+        initialSamples.expectedFulfillmentCount = 2
+        cpu.onSample = { initialSamples.fulfill() }
+        memory.onSample = { initialSamples.fulfill() }
+        let initialPreferences = PreferencesSnapshot(
+            primaryMetric: .cpu,
+            refreshInterval: 1,
+            launchAtLogin: false,
+            showsSparkline: true,
+            statusDisplayMode: .compact,
+            compactMetrics: [.cpu, .memory]
+        )
+        let sampler = MetricSampler(
+            preferences: initialPreferences,
+            cpuProvider: cpu,
+            memoryProvider: memory,
+            batteryProvider: FakeBatteryProvider(),
+            thermalProvider: FakeThermalProvider(),
+            lowPowerProvider: { false }
+        )
+        sampler.start()
+        wait(for: [initialSamples], timeout: 1)
+        sampler.waitUntilIdleForTesting()
+
+        sampler.updatePreferences(
+            PreferencesSnapshot(
+                primaryMetric: .cpu,
+                refreshInterval: 5,
+                launchAtLogin: false,
+                showsSparkline: true,
+                statusDisplayMode: .compact,
+                compactMetrics: [.cpu, .memory]
+            )
+        )
+        sampler.waitUntilIdleForTesting()
+
+        let (snapshot, _) = sampler.debugStateForTesting()
+        XCTAssertTrue(snapshot.cpuHistory.isEmpty)
+        XCTAssertTrue(snapshot.memoryHistory.isEmpty)
+        XCTAssertNil(snapshot.cpuHistorySummary)
+        XCTAssertNil(snapshot.memoryHistorySummary)
+        XCTAssertTrue(snapshot.cpuHistoryCollecting)
+        XCTAssertTrue(snapshot.memoryHistoryCollecting)
+        sampler.stop()
+    }
+
+    func testPowerAndSleepChangesPublishRuntimeStateImmediately() {
+        var lowPower = false
+        let sampler = MetricSampler(
+            preferences: preferences(.battery),
+            cpuProvider: FakeCPUProvider(),
+            memoryProvider: FakeMemoryProvider(),
+            batteryProvider: FakeBatteryProvider(),
+            thermalProvider: FakeThermalProvider(),
+            lowPowerProvider: { lowPower }
+        )
+        let lowPowerPublished = expectation(description: "low power period published")
+        let sleepPublished = expectation(description: "sleep state published")
+        sampler.onSnapshot = { snapshot in
+            if snapshot.samplingRuntime.effectivePeriods[.battery] == 120 {
+                lowPowerPublished.fulfill()
+            }
+            if snapshot.samplingRuntime.isSleeping,
+               snapshot.samplingRuntime.effectivePeriods.isEmpty {
+                sleepPublished.fulfill()
+            }
+        }
+        sampler.start()
+        sampler.waitUntilIdleForTesting()
+
+        lowPower = true
+        sampler.powerStateChanged()
+        wait(for: [lowPowerPublished], timeout: 1)
+
+        sampler.systemWillSleep()
+        wait(for: [sleepPublished], timeout: 1)
+        sampler.stop()
+    }
+
     func testPopoverStormDoesNotResetActiveCPUBaselineOrMoveDeadlines() {
         let cpu = FakeCPUProvider()
         let battery = FakeBatteryProvider()
@@ -249,6 +353,120 @@ final class MetricSamplerTests: XCTestCase {
         sampler.stop()
     }
 
+    func testBatterySessionMaximumCanResetToCurrentTemperature() {
+        var uptime: TimeInterval = 100
+        let battery = FakeBatteryProvider()
+        battery.sampleTemperatures = [35, 42, 38]
+        let sampled = expectation(description: "three battery samples")
+        sampled.expectedFulfillmentCount = 3
+        battery.onCurrentSample = { sampled.fulfill() }
+        let sampler = makeSampler(
+            primaryMetric: .battery,
+            battery: battery,
+            uptimeProvider: { uptime }
+        )
+
+        sampler.start()
+        sampler.waitUntilIdleForTesting()
+        uptime = 102
+        sampler.powerSourceChanged()
+        sampler.waitUntilIdleForTesting()
+        uptime = 104
+        sampler.powerSourceChanged()
+        wait(for: [sampled], timeout: 1)
+        sampler.waitUntilIdleForTesting()
+
+        var (snapshot, _) = sampler.debugStateForTesting()
+        XCTAssertEqual(snapshot.batteryTemperature.value, 38)
+        XCTAssertEqual(snapshot.batterySessionMaximumTemperature.value, 42)
+
+        sampler.resetBatterySessionMaximum()
+        sampler.waitUntilIdleForTesting()
+        (snapshot, _) = sampler.debugStateForTesting()
+        XCTAssertEqual(snapshot.batterySessionMaximumTemperature.value, 38)
+        sampler.stop()
+    }
+
+    func testNormalStartupDoesNotRecordSyntheticBatteryError() {
+        let battery = FakeBatteryProvider()
+        let sampled = expectation(description: "initial battery sample")
+        battery.onCurrentSample = { sampled.fulfill() }
+        let sampler = makeSampler(primaryMetric: .battery, battery: battery)
+
+        sampler.start()
+        wait(for: [sampled], timeout: 1)
+        sampler.waitUntilIdleForTesting()
+
+        let (snapshot, _) = sampler.debugStateForTesting()
+        XCTAssertTrue(snapshot.recentErrors.isEmpty)
+        XCTAssertTrue(snapshot.samplingRuntime.isRunning)
+        XCTAssertEqual(snapshot.samplingRuntime.effectivePeriods[.battery], 30)
+        sampler.stop()
+    }
+
+    func testStalePresentationStillRecordsActualCPUReadFailure() {
+        let cpu = FakeCPUProvider()
+        cpu.state = .available(CPUMetric(percent: 20), .now())
+        cpu.nextSampleFailure = .machFailure(5)
+        let sampled = expectation(description: "failed CPU sample")
+        cpu.onSample = { sampled.fulfill() }
+        let sampler = makeSampler(
+            primaryMetric: .cpu,
+            cpu: cpu,
+            battery: FakeBatteryProvider()
+        )
+
+        sampler.start()
+        wait(for: [sampled], timeout: 1)
+        sampler.waitUntilIdleForTesting()
+
+        let (snapshot, _) = sampler.debugStateForTesting()
+        guard case .stale = snapshot.cpu else {
+            return XCTFail("A cached CPU value should remain visibly stale")
+        }
+        XCTAssertEqual(snapshot.recentErrors.count, 1)
+        XCTAssertEqual(snapshot.recentErrors.first?.provider, .cpu)
+        XCTAssertEqual(snapshot.recentErrors.first?.failure, .machFailure(5))
+        sampler.stop()
+    }
+
+    func testStaleBatteryTemperatureCannotResetSessionMaximum() {
+        var uptime: TimeInterval = 100
+        let battery = FakeBatteryProvider()
+        battery.sampleTemperatures = [42, 38]
+        battery.sampleFailuresAtCounts[3] = .iokitFailure(7)
+        let sampled = expectation(description: "three battery samples")
+        sampled.expectedFulfillmentCount = 3
+        battery.onCurrentSample = { sampled.fulfill() }
+        let sampler = makeSampler(
+            primaryMetric: .battery,
+            battery: battery,
+            uptimeProvider: { uptime }
+        )
+
+        sampler.start()
+        sampler.waitUntilIdleForTesting()
+        uptime = 102
+        sampler.powerSourceChanged()
+        sampler.waitUntilIdleForTesting()
+        uptime = 104
+        sampler.powerSourceChanged()
+        wait(for: [sampled], timeout: 1)
+        sampler.waitUntilIdleForTesting()
+
+        var (snapshot, _) = sampler.debugStateForTesting()
+        guard case .stale = snapshot.batteryTemperature else {
+            return XCTFail("Expected stale current temperature")
+        }
+        XCTAssertEqual(snapshot.batterySessionMaximumTemperature.value, 42)
+
+        sampler.resetBatterySessionMaximum()
+        sampler.waitUntilIdleForTesting()
+        (snapshot, _) = sampler.debugStateForTesting()
+        XCTAssertEqual(snapshot.batterySessionMaximumTemperature.value, 42)
+        sampler.stop()
+    }
+
     private func makeSampler(
         primaryMetric: PrimaryMetric,
         cpu: FakeCPUProvider = FakeCPUProvider(),
@@ -279,6 +497,8 @@ final class MetricSamplerTests: XCTestCase {
 
 private final class FakeCPUProvider: CPUProviding {
     var state: MetricState<CPUMetric> = .unavailable(.fieldMissing)
+    var lastSampleFailure: MetricFailure?
+    var nextSampleFailure: MetricFailure?
     var sampleCount = 0
     var resetCount = 0
     var pauseCount = 0
@@ -308,6 +528,16 @@ private final class FakeCPUProvider: CPUProviding {
         concurrentSamples += 1
         maximumConcurrentSamples = max(maximumConcurrentSamples, concurrentSamples)
         sampleCount += 1
+        if let failure = nextSampleFailure {
+            lastSampleFailure = failure
+            nextSampleFailure = nil
+            let stamp = state.stamp ?? .now()
+            state = .stale(CPUMetric(percent: state.value?.percent ?? 20), stamp)
+            concurrentSamples -= 1
+            onSample?()
+            return state
+        }
+        lastSampleFailure = nil
         state = .available(CPUMetric(percent: 20), .now())
         concurrentSamples -= 1
         onSample?()
@@ -317,6 +547,7 @@ private final class FakeCPUProvider: CPUProviding {
 
 private final class FakeMemoryProvider: MemoryProviding {
     var state: MetricState<MemoryMetric> = .unavailable(.fieldMissing)
+    var lastSampleFailure: MetricFailure?
     var sampleCount = 0
     var maximumConcurrentSamples = 0
     var onSample: (() -> Void)?
@@ -339,6 +570,7 @@ private final class FakeMemoryProvider: MemoryProviding {
         concurrentSamples += 1
         maximumConcurrentSamples = max(maximumConcurrentSamples, concurrentSamples)
         sampleCount += 1
+        lastSampleFailure = nil
         state = .available(
             MemoryMetric(usedBytes: 50, totalBytes: 100, availableBytes: 50, purgeableBytes: 0),
             .now()
@@ -353,11 +585,15 @@ private final class FakeBatteryProvider: BatteryTemperatureProviding {
     var currentTemperature: MetricState<Double> = .unavailable(.fieldMissing)
     var maximumTemperature: MetricState<Double> = .unavailable(.fieldMissing)
     var shouldScheduleRoutineCurrentSample = true
+    var lastCurrentSampleFailure: MetricFailure?
+    var lastMaximumSampleFailure: MetricFailure?
     var becomesUnsupportedOnFirstCurrentSample = false
     var maximumReportsNoHardware = false
     var currentSampleCount = 0
     var maximumSampleCount = 0
     var maximumConcurrentSamples = 0
+    var sampleTemperatures: [Double] = []
+    var sampleFailuresAtCounts: [Int: MetricFailure] = [:]
     var onCurrentSample: (() -> Void)?
     private var concurrentSamples = 0
 
@@ -365,11 +601,30 @@ private final class FakeBatteryProvider: BatteryTemperatureProviding {
         concurrentSamples += 1
         maximumConcurrentSamples = max(maximumConcurrentSamples, concurrentSamples)
         currentSampleCount += 1
+        lastCurrentSampleFailure = nil
+        if let failure = sampleFailuresAtCounts[currentSampleCount] {
+            lastCurrentSampleFailure = failure
+            if let value = currentTemperature.value {
+                currentTemperature = .stale(
+                    value,
+                    currentTemperature.stamp ?? .now()
+                )
+            } else {
+                currentTemperature = .unavailable(failure)
+            }
+            concurrentSamples -= 1
+            onCurrentSample?()
+            return currentTemperature
+        }
         if becomesUnsupportedOnFirstCurrentSample {
+            lastCurrentSampleFailure = .noHardware
             currentTemperature = .unsupported(.noHardware)
             shouldScheduleRoutineCurrentSample = false
         } else {
-            currentTemperature = .available(35, .now())
+            let temperature = sampleTemperatures.isEmpty
+                ? 35
+                : sampleTemperatures.removeFirst()
+            currentTemperature = .available(temperature, .now())
         }
         concurrentSamples -= 1
         onCurrentSample?()
@@ -378,7 +633,9 @@ private final class FakeBatteryProvider: BatteryTemperatureProviding {
 
     func sampleMaximum() -> MetricState<Double> {
         maximumSampleCount += 1
+        lastMaximumSampleFailure = nil
         if maximumReportsNoHardware {
+            lastMaximumSampleFailure = .noHardware
             currentTemperature = .unsupported(.noHardware)
             maximumTemperature = .unsupported(.noHardware)
             shouldScheduleRoutineCurrentSample = false
@@ -388,7 +645,11 @@ private final class FakeBatteryProvider: BatteryTemperatureProviding {
         return maximumTemperature
     }
 
-    func pause() {}
+    func pause(nowUptime: TimeInterval) {
+        if case let .available(value, stamp) = currentTemperature {
+            currentTemperature = .stale(value, stamp)
+        }
+    }
 
     func resetCapabilities() {
         shouldScheduleRoutineCurrentSample = true

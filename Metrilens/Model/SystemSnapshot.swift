@@ -33,29 +33,65 @@ enum ThermalLevel: Int, CaseIterable {
     }
 }
 
-struct CPUHistoryPoint: Equatable {
+struct MetricHistoryPoint: Equatable {
     let uptime: TimeInterval
     let percent: Double
+}
+
+typealias CPUHistoryPoint = MetricHistoryPoint
+
+struct SamplingRuntimeState: Equatable {
+    var isRunning: Bool
+    var isSleeping: Bool
+    var isPopoverVisible: Bool
+    var effectivePeriods: [ProviderID: TimeInterval]
+
+    static let stopped = SamplingRuntimeState(
+        isRunning: false,
+        isSleeping: false,
+        isPopoverVisible: false,
+        effectivePeriods: [:]
+    )
+}
+
+struct RecentMetricError: Equatable {
+    let provider: ProviderID
+    let failure: MetricFailure
+    let wallTime: Date
 }
 
 struct SystemSnapshot {
     var cpu: MetricState<CPUMetric>
     var memory: MetricState<MemoryMetric>
     var batteryTemperature: MetricState<Double>
+    var batterySessionMaximumTemperature: MetricState<Double>
     var batteryMaximumTemperature: MetricState<Double>
     var thermalLevel: ThermalLevel
-    var cpuHistory: [CPUHistoryPoint]
+    var cpuHistory: [MetricHistoryPoint]
     var cpuHistoryCollecting: Bool
+    var cpuHistorySummary: MetricHistorySummary?
+    var memoryHistory: [MetricHistoryPoint]
+    var memoryHistoryCollecting: Bool
+    var memoryHistorySummary: MetricHistorySummary?
+    var samplingRuntime: SamplingRuntimeState
+    var recentErrors: [RecentMetricError]
 
     static func initial() -> SystemSnapshot {
         SystemSnapshot(
             cpu: .unavailable(.fieldMissing),
             memory: .unavailable(.fieldMissing),
             batteryTemperature: .unavailable(.fieldMissing),
+            batterySessionMaximumTemperature: .unavailable(.fieldMissing),
             batteryMaximumTemperature: .unavailable(.fieldMissing),
             thermalLevel: ThermalLevel(ProcessInfo.processInfo.thermalState),
             cpuHistory: [],
-            cpuHistoryCollecting: true
+            cpuHistoryCollecting: true,
+            cpuHistorySummary: nil,
+            memoryHistory: [],
+            memoryHistoryCollecting: true,
+            memoryHistorySummary: nil,
+            samplingRuntime: .stopped,
+            recentErrors: []
         )
     }
 }

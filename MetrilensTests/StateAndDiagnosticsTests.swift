@@ -100,9 +100,59 @@ final class StateAndDiagnosticsTests: XCTestCase {
                 primaryMetric: metric,
                 snapshot: snapshot
             )
-            XCTAssertTrue(presentation.title.hasSuffix(" ·"))
-            XCTAssertEqual(presentation.staleStamp, stamp)
+            XCTAssertTrue(presentation.title.hasSuffix(" ⏱"))
+            XCTAssertEqual(presentation.staleStamps, [stamp])
         }
+    }
+
+    func testCompactStatusItemCombinesSelectedMetricsAndHighestSeverity() {
+        let stamp = SampleStamp(wallTime: Date(), uptime: 10)
+        var snapshot = SystemSnapshot.initial()
+        snapshot.cpu = .available(CPUMetric(percent: 23), stamp)
+        snapshot.memory = .available(
+            MemoryMetric(
+                usedBytes: 72,
+                totalBytes: 100,
+                availableBytes: 28,
+                purgeableBytes: 0
+            ),
+            stamp
+        )
+        snapshot.batteryTemperature = .available(43, stamp)
+        let preferences = PreferencesSnapshot(
+            primaryMetric: .cpu,
+            refreshInterval: 1,
+            launchAtLogin: false,
+            showsSparkline: true,
+            statusDisplayMode: .compact,
+            compactMetrics: [.cpu, .memory, .battery]
+        )
+
+        let presentation = StatusItemController.presentation(
+            preferences: preferences,
+            snapshot: snapshot
+        )
+
+        XCTAssertEqual(presentation.title, "CPU 23% · MEM 72% · BAT 43.0°")
+        XCTAssertEqual(presentation.staleStamps, [])
+        XCTAssertEqual(presentation.severity, .warning)
+    }
+
+    func testSparklineFindsNearestPointAcrossUnevenSamples() {
+        let points = [
+            MetricHistoryPoint(uptime: 10, percent: 10),
+            MetricHistoryPoint(uptime: 20, percent: 20),
+            MetricHistoryPoint(uptime: 50, percent: 50)
+        ]
+
+        XCTAssertEqual(
+            SparklineView.nearestPoint(toNormalizedX: 0.3, points: points),
+            points[1]
+        )
+        XCTAssertEqual(
+            SparklineView.nearestPoint(toNormalizedX: 2, points: points),
+            points[2]
+        )
     }
 
     func testSettingsExplainTheMemoryProductDefinition() {

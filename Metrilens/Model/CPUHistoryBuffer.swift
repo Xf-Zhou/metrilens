@@ -1,7 +1,12 @@
 import Foundation
 
-struct CPUHistoryBuffer {
-    private(set) var points: [CPUHistoryPoint] = []
+struct MetricHistorySummary: Equatable {
+    let average: Double
+    let peak: Double
+}
+
+struct MetricHistoryBuffer {
+    private(set) var points: [MetricHistoryPoint] = []
     private var collectionStartedAt: TimeInterval?
     let window: TimeInterval
     let capacity: Int
@@ -20,12 +25,22 @@ struct CPUHistoryBuffer {
         if points.count == capacity {
             points.removeFirst()
         }
-        points.append(CPUHistoryPoint(uptime: uptime, percent: percent))
+        points.append(MetricHistoryPoint(uptime: uptime, percent: percent))
     }
 
-    mutating func values(now: TimeInterval) -> [CPUHistoryPoint] {
+    mutating func values(now: TimeInterval) -> [MetricHistoryPoint] {
         prune(now: now)
         return points
+    }
+
+    mutating func summary(now: TimeInterval) -> MetricHistorySummary? {
+        prune(now: now)
+        guard !points.isEmpty else { return nil }
+        let percentages = points.map(\.percent)
+        return MetricHistorySummary(
+            average: percentages.reduce(0, +) / Double(percentages.count),
+            peak: percentages.max() ?? 0
+        )
     }
 
     mutating func clear() {
@@ -49,3 +64,5 @@ struct CPUHistoryBuffer {
         }
     }
 }
+
+typealias CPUHistoryBuffer = MetricHistoryBuffer

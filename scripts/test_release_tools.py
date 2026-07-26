@@ -1,6 +1,7 @@
 import os
 import plistlib
 from pathlib import Path
+import stat
 import subprocess
 import tempfile
 import textwrap
@@ -111,6 +112,98 @@ class ReleaseToolsTests(unittest.TestCase):
             with self.assertRaises(release_tools.ReleaseValidationError):
                 release_tools.verify_archive(archive_path, "0.2.0")
 
+    def test_archive_validation_rejects_unsafe_entries(self):
+        for unsafe_name in [
+            "../outside",
+            "/absolute",
+            "Metrilens.app/../outside",
+            "other/Contents/file",
+            r"Metrilens.app\outside",
+        ]:
+            with self.subTest(unsafe_name=unsafe_name):
+                with tempfile.TemporaryDirectory() as temporary:
+                    archive_path = Path(temporary) / "bad.zip"
+                    with zipfile.ZipFile(archive_path, "w") as archive:
+                        archive.writestr(unsafe_name, b"unsafe")
+                    with self.assertRaises(release_tools.ReleaseValidationError):
+                        release_tools.verify_archive(archive_path, "0.2.0")
+
+    def test_archive_validation_rejects_special_files_before_extraction(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            archive_path = Path(temporary) / "special.zip"
+            entry = zipfile.ZipInfo("Metrilens.app/Contents/fifo")
+            entry.create_system = 3
+            entry.external_attr = (stat.S_IFIFO | 0o644) << 16
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr(entry, b"")
+
+            with self.assertRaisesRegex(
+                release_tools.ReleaseValidationError,
+                "unsafe entry",
+            ):
+                release_tools.verify_archive(archive_path, "0.2.0")
+
+    def test_archive_validation_rejects_oversized_contents_before_extraction(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            archive_path = Path(temporary) / "oversized.zip"
+            entry = zipfile.ZipInfo("Metrilens.app/Contents/oversized")
+            entry.create_system = 3
+            entry.external_attr = (stat.S_IFREG | 0o644) << 16
+            with zipfile.ZipFile(
+                archive_path,
+                "w",
+                compression=zipfile.ZIP_DEFLATED,
+            ) as archive:
+                archive.writestr(
+                    entry,
+                    b"\0" * (release_tools.MAX_ARCHIVE_UNCOMPRESSED_BYTES + 1),
+                )
+
+            with self.assertRaisesRegex(
+                release_tools.ReleaseValidationError,
+                "10 MiB",
+            ):
+                release_tools.verify_archive(archive_path, "0.2.0")
+
+    def test_checksum_validation_requires_exact_digest_and_filename(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = root / "Metrilens-v0.2.0-macos-arm64.zip"
+            checksum = root / f"{archive.name}.sha256"
+            archive.write_bytes(b"release")
+            release_tools.write_checksum(archive, checksum)
+            release_tools.verify_checksum_file(archive, checksum)
+
+            checksum.write_text(
+                f"{release_tools.sha256(archive)}  other.zip\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(release_tools.ReleaseValidationError):
+                release_tools.verify_checksum_file(archive, checksum)
+
+            release_tools.write_checksum(archive, checksum)
+            archive.write_bytes(b"tampered")
+            with self.assertRaises(release_tools.ReleaseValidationError):
+                release_tools.verify_checksum_file(archive, checksum)
+
+    def test_checksum_validation_rejects_paths_and_extra_lines(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = root / "Metrilens-v0.2.0-macos-arm64.zip"
+            checksum = root / f"{archive.name}.sha256"
+            archive.write_bytes(b"release")
+            digest = release_tools.sha256(archive)
+
+            for invalid in [
+                f"{digest}  ../{archive.name}\n",
+                f"{digest}  nested/{archive.name}\n",
+                f"{digest}  {archive.name}\nextra\n",
+            ]:
+                with self.subTest(invalid=invalid):
+                    checksum.write_text(invalid, encoding="utf-8")
+                    with self.assertRaises(release_tools.ReleaseValidationError):
+                        release_tools.verify_checksum_file(archive, checksum)
+
     def test_release_workflow_uses_one_concurrency_key_for_push_and_dispatch(self):
         repository = Path(__file__).resolve().parent.parent
         release_driver = (
@@ -132,6 +225,18 @@ class ReleaseToolsTests(unittest.TestCase):
             './scripts/release.sh "$version" --publish\n',
             workflow,
         )
+
+    def test_remote_acceptance_downloads_exact_assets_with_gh(self):
+        repository = Path(__file__).resolve().parent.parent
+        script = (
+            repository / "scripts" / "accept_release.sh"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('gh release download "v$version"', script)
+        self.assertIn("--repo Xf-Zhou/metrilens", script)
+        self.assertIn('--pattern "$asset_name"', script)
+        self.assertIn('--pattern "$asset_name.sha256"', script)
+        self.assertNotIn("curl ", script)
 
     def test_local_new_tag_only_pushes_and_never_writes_release(self):
         commands = self.run_publish_flow(

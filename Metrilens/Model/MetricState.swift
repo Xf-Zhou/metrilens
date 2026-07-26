@@ -48,6 +48,20 @@ enum MetricState<Value> {
         if case .stale = self { return true }
         return false
     }
+
+    var freshValue: Value? {
+        if case let .available(value, _) = self { return value }
+        return nil
+    }
+
+    var failure: MetricFailure? {
+        switch self {
+        case let .unavailable(failure), let .unsupported(failure):
+            return failure
+        case .available, .stale:
+            return nil
+        }
+    }
 }
 
 final class MetricStateMachine<Value> {

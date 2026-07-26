@@ -10,6 +10,7 @@ struct CPUTicks: Equatable {
 
 protocol CPUProviding: AnyObject {
     var state: MetricState<CPUMetric> { get }
+    var lastSampleFailure: MetricFailure? { get }
     func resetBaseline()
     func pause(nowUptime: TimeInterval)
     func expireCachedValue(nowUptime: TimeInterval)
@@ -22,6 +23,7 @@ final class CPUProvider: CPUProviding {
     private var cacheTTL: TimeInterval = 10
 
     var state: MetricState<CPUMetric> { stateMachine.state }
+    private(set) var lastSampleFailure: MetricFailure?
 
     func resetBaseline() {
         previous = nil
@@ -48,18 +50,22 @@ final class CPUProvider: CPUProviding {
         case let .success(current):
             guard let previous else {
                 self.previous = current
+                lastSampleFailure = nil
                 return stateMachine.state
             }
             self.previous = current
             guard let percent = Self.utilization(previous: previous, current: current) else {
+                lastSampleFailure = .counterOverflow
                 return stateMachine.recordFailure(
                     .counterOverflow,
                     failureLimit: 3,
                     ttl: max(10, period * 3)
                 )
             }
+            lastSampleFailure = nil
             return stateMachine.recordSuccess(CPUMetric(percent: percent))
         case let .failure(error):
+            lastSampleFailure = error
             return stateMachine.recordFailure(
                 error,
                 failureLimit: 3,
