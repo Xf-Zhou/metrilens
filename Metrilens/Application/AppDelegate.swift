@@ -58,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.popoverController.toggle(relativeTo: button)
         }
         popoverController.onVisibilityChange = { [weak self] visible in
+            self?.statusController.setPopoverVisible(visible)
             self?.sampler.setPopoverVisible(visible)
         }
         popoverController.onOpenPreferences = { [weak self] in

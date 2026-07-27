@@ -85,6 +85,53 @@ final class StateAndDiagnosticsTests: XCTestCase {
         )
     }
 
+    func testStatusItemColorUsesNativeSelectionAndMutedCaution() {
+        XCTAssertTrue(
+            StatusItemController.statusColor(
+                severity: .caution,
+                stale: false,
+                selected: true
+            ).isEqual(NSColor.selectedMenuItemTextColor)
+        )
+
+        let caution = StatusItemController.statusColor(
+            severity: .caution,
+            stale: false,
+            selected: false
+        )
+        XCTAssertFalse(caution.isEqual(NSColor.systemYellow))
+        XCTAssertEqual(caution.alphaComponent, 0.72, accuracy: 0.001)
+    }
+
+    func testStatusItemSelectionPreservesAccessibilityWarnings() {
+        let stamp = SampleStamp(wallTime: Date(), uptime: 10)
+        var snapshot = SystemSnapshot.initial()
+        snapshot.cpu = .stale(CPUMetric(percent: 66), stamp)
+        snapshot.thermalLevel = .serious
+        let controller = StatusItemController(
+            preferences: PreferencesSnapshot(
+                primaryMetric: .cpu,
+                refreshInterval: 1,
+                launchAtLogin: false,
+                showsSparkline: true,
+                language: .simplifiedChinese
+            )
+        )
+
+        controller.update(snapshot: snapshot)
+        let warningValue = controller.accessibilityValueForTesting()
+        XCTAssertTrue(warningValue?.contains("数据已过期") == true)
+        XCTAssertTrue(warningValue?.contains("系统热状态警告") == true)
+        XCTAssertFalse(controller.isHighlightedForTesting())
+
+        controller.setPopoverVisible(true)
+        XCTAssertTrue(controller.isHighlightedForTesting())
+        XCTAssertEqual(controller.accessibilityValueForTesting(), warningValue)
+        controller.setPopoverVisible(false)
+        XCTAssertFalse(controller.isHighlightedForTesting())
+        XCTAssertEqual(controller.accessibilityValueForTesting(), warningValue)
+    }
+
     func testStatusItemPresentationsMarkAllStalePrimaryMetrics() {
         let stamp = SampleStamp(wallTime: Date(timeIntervalSince1970: 100), uptime: 100)
         var snapshot = SystemSnapshot.initial()
@@ -177,7 +224,8 @@ final class StateAndDiagnosticsTests: XCTestCase {
             launchAtLogin: false,
             showsSparkline: true,
             statusDisplayMode: .compact,
-            compactMetrics: [.cpu, .memory, .battery]
+            compactMetrics: [.cpu, .memory, .battery],
+            language: .simplifiedChinese
         )
 
         let presentation = StatusItemController.presentation(
@@ -185,9 +233,86 @@ final class StateAndDiagnosticsTests: XCTestCase {
             snapshot: snapshot
         )
 
-        XCTAssertEqual(presentation.title, "CPU 23% · MEM 72% · BAT 43.0°")
+        XCTAssertEqual(presentation.title, "CPU 23% · 内存 72% · 电池 43.0°C")
         XCTAssertEqual(presentation.staleStamps, [])
         XCTAssertEqual(presentation.severity, .warning)
+    }
+
+    func testCompactStatusItemUsesClearEnglishMetricNames() {
+        let stamp = SampleStamp(wallTime: Date(), uptime: 10)
+        var snapshot = SystemSnapshot.initial()
+        snapshot.memory = .available(
+            MemoryMetric(
+                usedBytes: 72,
+                totalBytes: 100,
+                availableBytes: 28,
+                purgeableBytes: 0
+            ),
+            stamp
+        )
+        snapshot.batteryTemperature = .available(43, stamp)
+        snapshot.disk = .available(
+            DiskCapacityMetric(
+                totalBytes: 100,
+                freeBytes: 40,
+                availableBytes: 35
+            ),
+            stamp
+        )
+        let preferences = PreferencesSnapshot(
+            primaryMetric: .memory,
+            refreshInterval: 1,
+            launchAtLogin: false,
+            showsSparkline: true,
+            statusDisplayMode: .compact,
+            compactMetrics: [.memory, .battery, .disk],
+            statusDecimalPlaces: 1,
+            language: .english
+        )
+
+        XCTAssertEqual(
+            StatusItemController.presentation(
+                preferences: preferences,
+                snapshot: snapshot
+            ).title,
+            "RAM 72.0% · Batt 43.0°C · Free 35.0%"
+        )
+    }
+
+    func testAvailableNetworkStatusItemUsesLocalizedMetricName() {
+        let stamp = SampleStamp(wallTime: Date(), uptime: 10)
+        var snapshot = SystemSnapshot.initial()
+        snapshot.network = .available(
+            NetworkMetric(
+                downloadBytesPerSecond: 1_200,
+                uploadBytesPerSecond: 300,
+                interfaceName: "en0"
+            ),
+            stamp
+        )
+
+        func presentation(language: AppLanguage) -> StatusMetricPresentation {
+            StatusItemController.presentation(
+                preferences: PreferencesSnapshot(
+                    primaryMetric: .network,
+                    refreshInterval: 1,
+                    launchAtLogin: false,
+                    showsSparkline: true,
+                    statusDecimalPlaces: 1,
+                    language: language
+                ),
+                snapshot: snapshot
+            )
+        }
+
+        XCTAssertEqual(
+            presentation(language: .simplifiedChinese).title,
+            "网络 ↓1.2K/s ↑300.0B/s"
+        )
+        XCTAssertEqual(
+            presentation(language: .english).title,
+            "Net ↓1.2K/s ↑300.0B/s"
+        )
     }
 
     func testSparklineFindsNearestPointAcrossUnevenSamples() {

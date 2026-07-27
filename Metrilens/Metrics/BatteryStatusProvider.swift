@@ -108,14 +108,17 @@ final class BatteryStatusProvider: BatteryStatusProviding {
             state = .unknown
         }
 
-        let condition = string(properties["BatteryHealthCondition"])
-            ?? string(properties["BatteryHealth"])
+        let condition = nonEmptyString(properties["BatteryHealthCondition"])
+            ?? nonEmptyString(properties["BatteryHealth"])
         let health: BatteryHealth
         switch condition?.lowercased() {
-        case "good": health = .good
-        case "fair": health = .fair
-        case "poor": health = .poor
-        case "check battery", "permanent failure", "service recommended":
+        case kIOPSGoodValue.lowercased(): health = .good
+        case kIOPSFairValue.lowercased(): health = .fair
+        case kIOPSPoorValue.lowercased(): health = .poor
+        case kIOPSCheckBatteryValue.lowercased(),
+             kIOPSPermanentFailureValue.lowercased(),
+             "permanent failure",
+             "service recommended":
             health = .serviceRecommended
         default:
             health = .unknown
@@ -257,5 +260,14 @@ final class BatteryStatusProvider: BatteryStatusProviding {
 
     private static func string(_ value: Any?) -> String? {
         value as? String
+    }
+
+    private static func nonEmptyString(_ value: Any?) -> String? {
+        guard let value = string(value)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 }

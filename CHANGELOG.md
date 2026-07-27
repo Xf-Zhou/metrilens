@@ -4,6 +4,23 @@
 
 ## [未发布]
 
+## [0.5.0] - 2026-07-27
+
+### 新增
+
+- CPU 与内存增加 10 秒、30 秒刷新频率。
+
+### 更改
+
+- 菜单栏指标改用更清晰的中英文名称，并为电池温度补充摄氏度单位、为磁盘指标明确“可用空间”语义。
+- 菜单栏选中时跟随 macOS 原生高亮文本颜色，告警色调整为更柔和的橙色。
+
+### 修复
+
+- 系统没有提供可识别的电池健康状态时不再显示无意义的占位行。
+- 忽略空的 `BatteryHealthCondition`，继续回退读取 `BatteryHealth`，并兼容 IOKit 的正式电池故障状态。
+- 修复菜单栏选中状态重绘后可能丢失辅助功能告警描述的问题。
+
 ## [0.4.0] - 2026-07-26
 
 ### 新增
@@ -77,7 +94,8 @@
 - Metrilens 内存占用、电池当前/历史最高温度和系统热状态。
 - 1 秒、2 秒和 5 秒刷新频率，以及登录启动和菜单栏主指标设置。
 
-[未发布]: https://github.com/Xf-Zhou/metrilens/compare/v0.4.0...HEAD
+[未发布]: https://github.com/Xf-Zhou/metrilens/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Xf-Zhou/metrilens/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Xf-Zhou/metrilens/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Xf-Zhou/metrilens/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Xf-Zhou/metrilens/compare/v0.1.0...v0.2.0

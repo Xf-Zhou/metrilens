@@ -46,6 +46,7 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     private let quitButton = NSButton()
 
     private let batteryRow = NSStackView()
+    private let batteryHealthRow = NSStackView()
     private let batterySessionMaximumRow = NSStackView()
     private let batteryMaximumRow = NSStackView()
     private let cpuSection = NSStackView()
@@ -141,6 +142,10 @@ final class PopoverController: NSObject, NSPopoverDelegate {
                 && batterySessionMaximumRow.isHidden
                 && batteryMaximumRow.isHidden
         )
+    }
+
+    func batteryHealthRowHiddenForTesting() -> Bool {
+        batteryHealthRow.isHidden
     }
 
     func diskPresentationForTesting() -> (
@@ -358,7 +363,8 @@ final class PopoverController: NSObject, NSPopoverDelegate {
             title: batteryCyclesTitle,
             value: batteryCyclesValue
         )
-        let batteryHealthRow = makeRow(
+        configureRow(
+            batteryHealthRow,
             title: batteryHealthTitle,
             value: batteryHealthValue
         )
@@ -640,6 +646,7 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         _ state: MetricState<BatteryMetric>
     ) {
         guard let metric = state.value else {
+            batteryHealthRow.isHidden = true
             let text = Self.placeholder(state, language: preferences.language)
             for field in [
                 batteryLevelValue,
@@ -658,10 +665,13 @@ final class PopoverController: NSObject, NSPopoverDelegate {
             language: preferences.language
         )
         batteryCyclesValue.stringValue = metric.cycleCount.map(String.init) ?? "—"
-        batteryHealthValue.stringValue = Self.batteryHealthText(
-            metric.health,
-            language: preferences.language
-        )
+        batteryHealthRow.isHidden = metric.health == .unknown
+        if metric.health != .unknown {
+            batteryHealthValue.stringValue = Self.batteryHealthText(
+                metric.health,
+                language: preferences.language
+            )
+        }
         for field in [
             batteryLevelValue,
             batteryStateValue,

@@ -10,6 +10,10 @@ final class StatusItemController: NSObject {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var preferences: PreferencesSnapshot
     private var didSignalReadiness = false
+    private var displayedTitle = "CPU —"
+    private var displayedSeverity = MetricVisualSeverity.normal
+    private var displayedAsStale = false
+    private var isPopoverVisible = false
 
     var onToggle: ((NSStatusBarButton) -> Void)?
 
@@ -30,6 +34,21 @@ final class StatusItemController: NSObject {
     func setPreferences(_ preferences: PreferencesSnapshot) {
         self.preferences = preferences
         updateLocalizedMetadata()
+    }
+
+    func setPopoverVisible(_ visible: Bool) {
+        guard visible != isPopoverVisible else { return }
+        isPopoverVisible = visible
+        statusItem.button?.highlight(visible)
+        applyDisplayedTitle()
+    }
+
+    func accessibilityValueForTesting() -> String? {
+        statusItem.button?.accessibilityValue() as? String
+    }
+
+    func isHighlightedForTesting() -> Bool {
+        statusItem.button?.cell?.isHighlighted ?? false
     }
 
     func update(snapshot: SystemSnapshot) {
@@ -78,12 +97,26 @@ final class StatusItemController: NSObject {
         severity: MetricVisualSeverity,
         stale: Bool = false
     ) {
+        displayedTitle = title
+        displayedSeverity = severity
+        displayedAsStale = stale
+        applyDisplayedTitle()
+        statusItem.button?.setAccessibilityValue(title)
+    }
+
+    private func applyDisplayedTitle() {
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .medium),
-            .foregroundColor: Self.color(severity: severity, stale: stale)
+            .foregroundColor: Self.statusColor(
+                severity: displayedSeverity,
+                stale: displayedAsStale,
+                selected: isPopoverVisible
+            )
         ]
-        statusItem.button?.attributedTitle = NSAttributedString(string: title, attributes: attributes)
-        statusItem.button?.setAccessibilityValue(title)
+        statusItem.button?.attributedTitle = NSAttributedString(
+            string: displayedTitle,
+            attributes: attributes
+        )
     }
 
     @objc private func togglePopover() {
@@ -119,7 +152,8 @@ final class StatusItemController: NSObject {
             segment(
                 metric: $0,
                 snapshot: snapshot,
-                decimalPlaces: preferences.statusDecimalPlaces
+                decimalPlaces: preferences.statusDecimalPlaces,
+                language: preferences.language
             )
         }
         let staleStamps = segments.compactMap(\.staleStamp)
@@ -136,7 +170,8 @@ final class StatusItemController: NSObject {
     private static func segment(
         metric: PrimaryMetric,
         snapshot: SystemSnapshot,
-        decimalPlaces: Int
+        decimalPlaces: Int,
+        language: AppLanguage
     ) -> MetricSegment {
         switch metric {
         case .cpu:
@@ -147,24 +182,27 @@ final class StatusItemController: NSObject {
             )
         case .memory:
             return percentSegment(
-                prefix: "MEM",
+                prefix: language.text("内存", "RAM"),
                 state: snapshot.memory.map(\.percent),
                 decimalPlaces: decimalPlaces
             )
         case .battery:
             return temperatureSegment(
                 state: snapshot.batteryTemperature,
-                decimalPlaces: max(1, decimalPlaces)
+                decimalPlaces: max(1, decimalPlaces),
+                language: language
             )
         case .network:
             return networkSegment(
                 state: snapshot.network,
-                decimalPlaces: decimalPlaces
+                decimalPlaces: decimalPlaces,
+                language: language
             )
         case .disk:
             return diskSegment(
                 state: snapshot.disk,
-                decimalPlaces: decimalPlaces
+                decimalPlaces: decimalPlaces,
+                language: language
             )
         }
     }
@@ -193,17 +231,19 @@ final class StatusItemController: NSObject {
 
     private static func temperatureSegment(
         state: MetricState<Double>,
-        decimalPlaces: Int
+        decimalPlaces: Int,
+        language: AppLanguage
     ) -> MetricSegment {
+        let prefix = language.text("电池", "Batt")
         guard let value = state.value else {
             return MetricSegment(
-                title: "BAT —",
+                title: "\(prefix) —",
                 staleStamp: nil,
                 severity: .normal
             )
         }
         return MetricSegment(
-            title: String(format: "BAT %.\(decimalPlaces)f°", value),
+            title: String(format: "\(prefix) %.\(decimalPlaces)f°C", value),
             staleStamp: state.isStale ? state.stamp : nil,
             severity: state.isStale
                 ? .normal
@@ -213,17 +253,19 @@ final class StatusItemController: NSObject {
 
     private static func networkSegment(
         state: MetricState<NetworkMetric>,
-        decimalPlaces: Int
+        decimalPlaces: Int,
+        language: AppLanguage
     ) -> MetricSegment {
+        let prefix = language.text("网络", "Net")
         guard let value = state.value else {
             return MetricSegment(
-                title: "NET —",
+                title: "\(prefix) —",
                 staleStamp: nil,
                 severity: .normal
             )
         }
         return MetricSegment(
-            title: "↓\(rate(value.downloadBytesPerSecond, decimalPlaces: decimalPlaces)) "
+            title: "\(prefix) ↓\(rate(value.downloadBytesPerSecond, decimalPlaces: decimalPlaces)) "
                 + "↑\(rate(value.uploadBytesPerSecond, decimalPlaces: decimalPlaces))",
             staleStamp: state.isStale ? state.stamp : nil,
             severity: .normal
@@ -232,11 +274,13 @@ final class StatusItemController: NSObject {
 
     private static func diskSegment(
         state: MetricState<DiskCapacityMetric>,
-        decimalPlaces: Int
+        decimalPlaces: Int,
+        language: AppLanguage
     ) -> MetricSegment {
+        let prefix = language.text("磁盘余", "Free")
         guard let value = state.value else {
             return MetricSegment(
-                title: "DISK —",
+                title: "\(prefix) —",
                 staleStamp: nil,
                 severity: .normal
             )
@@ -252,7 +296,7 @@ final class StatusItemController: NSObject {
         }
         return MetricSegment(
             title: String(
-                format: "DISK %.\(decimalPlaces)f%%",
+                format: "\(prefix) %.\(decimalPlaces)f%%",
                 value.freePercent
             ),
             staleStamp: state.isStale ? state.stamp : nil,
@@ -293,16 +337,20 @@ final class StatusItemController: NSObject {
         )
     }
 
-    private static func color(
+    static func statusColor(
         severity: MetricVisualSeverity,
-        stale: Bool
+        stale: Bool,
+        selected: Bool
     ) -> NSColor {
+        if selected {
+            return .selectedMenuItemTextColor
+        }
         if stale && severity == .normal {
             return .secondaryLabelColor
         }
         switch severity {
         case .normal: return .labelColor
-        case .caution: return .systemYellow
+        case .caution: return .systemOrange.withAlphaComponent(0.72)
         case .warning: return .systemOrange
         case .critical: return .systemRed
         }

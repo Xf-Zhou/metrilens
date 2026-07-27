@@ -107,6 +107,20 @@ final class ProductQualityTests: XCTestCase {
         )
     }
 
+    func testTenAndThirtySecondRefreshIntervalsAreAccepted() {
+        let preferences = AppPreferences(defaults: defaults)
+        XCTAssertEqual(
+            AppPreferences.allowedRefreshIntervals,
+            [1, 2, 5, 10, 30]
+        )
+
+        preferences.setRefreshInterval(10)
+        XCTAssertEqual(preferences.snapshot.refreshInterval, 10)
+
+        preferences.setRefreshInterval(30)
+        XCTAssertEqual(preferences.snapshot.refreshInterval, 30)
+    }
+
     func testDiagnosticReportHasOnlyWhitelistedPrivacySafeFields() {
         let stamp = SampleStamp(
             wallTime: Date(timeIntervalSince1970: 1_000),
@@ -330,6 +344,42 @@ final class ProductQualityTests: XCTestCase {
         visibility = controller.batteryVisibilityForTesting()
         XCTAssertFalse(visibility.sectionHidden)
         XCTAssertTrue(visibility.temperatureRowsHidden)
+    }
+
+    func testPopoverHidesUnknownBatteryHealthAndRestoresKnownHealth() {
+        let stamp = SampleStamp(wallTime: Date(), uptime: 10)
+        let controller = PopoverController(showsSparkline: false)
+        var snapshot = SystemSnapshot.initial()
+        snapshot.battery = .available(
+            BatteryMetric(
+                levelPercent: 93,
+                powerState: .externalPower,
+                cycleCount: 167,
+                health: .unknown,
+                timeRemainingMinutes: nil
+            ),
+            stamp
+        )
+
+        controller.update(snapshot: snapshot)
+        XCTAssertTrue(controller.batteryHealthRowHiddenForTesting())
+
+        snapshot.battery = .available(
+            BatteryMetric(
+                levelPercent: 93,
+                powerState: .externalPower,
+                cycleCount: 167,
+                health: .good,
+                timeRemainingMinutes: nil
+            ),
+            stamp
+        )
+        controller.update(snapshot: snapshot)
+        XCTAssertFalse(controller.batteryHealthRowHiddenForTesting())
+
+        snapshot.battery = .unavailable(.fieldMissing)
+        controller.update(snapshot: snapshot)
+        XCTAssertTrue(controller.batteryHealthRowHiddenForTesting())
     }
 
     func testDiskPlaceholderClearsPreviousSeverityColor() {

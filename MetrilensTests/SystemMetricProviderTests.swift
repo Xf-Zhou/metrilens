@@ -23,6 +23,28 @@ final class SystemMetricProviderTests: XCTestCase {
         XCTAssertEqual(metric.timeRemainingMinutes, 45)
     }
 
+    func testBatteryStatusFallsBackFromEmptyConditionToHealthEstimate() throws {
+        let result = BatteryStatusProvider.decode([
+            "CurrentCapacity": 92,
+            "MaxCapacity": 100,
+            "BatteryHealthCondition": "  \n",
+            "BatteryHealth": "Good"
+        ])
+
+        XCTAssertEqual(try result.get().health, .good)
+    }
+
+    func testBatteryStatusRecognizesOfficialPermanentFailureValue() throws {
+        let result = BatteryStatusProvider.decode([
+            "CurrentCapacity": 50,
+            "MaxCapacity": 100,
+            "BatteryHealthCondition": "Permanent Battery Failure",
+            "BatteryHealth": "Good"
+        ])
+
+        XCTAssertEqual(try result.get().health, .serviceRecommended)
+    }
+
     func testBatteryStatusRejectsMissingCapacity() {
         guard case .failure(.fieldMissing) = BatteryStatusProvider.decode([
             "CurrentCapacity": 100
@@ -208,7 +230,8 @@ final class SystemMetricProviderTests: XCTestCase {
             compactMetrics: [.cpu, .disk],
             metricOrder: [.disk, .cpu, .memory, .battery, .network],
             statusSeparator: .bar,
-            statusDecimalPlaces: 1
+            statusDecimalPlaces: 1,
+            language: .english
         )
 
         XCTAssertEqual(
@@ -216,7 +239,7 @@ final class SystemMetricProviderTests: XCTestCase {
                 preferences: preferences,
                 snapshot: snapshot
             ).title,
-            "DISK 35.0% | CPU 23.4%"
+            "Free 35.0% | CPU 23.4%"
         )
     }
 }

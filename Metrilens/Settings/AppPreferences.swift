@@ -131,7 +131,7 @@ struct PreferencesSnapshot: Equatable {
 }
 
 final class AppPreferences {
-    static let allowedRefreshIntervals: [TimeInterval] = [1, 2, 5]
+    static let allowedRefreshIntervals: [TimeInterval] = [1, 2, 5, 10, 30]
     static let allowedAlertThresholds: [Double] = [80, 90, 95]
     static let allowedBatteryLevelThresholds: [Double] = [10, 20, 30]
     static let allowedBatteryTemperatureThresholds: [Double] = [40, 45, 50]

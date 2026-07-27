@@ -172,6 +172,26 @@ final class SamplingAndHistoryTests: XCTestCase {
         )
     }
 
+    func testLowPowerModeDoesNotSpeedUpLongRefreshIntervals() {
+        let preferences = PreferencesSnapshot(
+            primaryMetric: .memory,
+            refreshInterval: 30,
+            launchAtLogin: false,
+            showsSparkline: true
+        )
+
+        let periods = SamplingPolicy.resolve(
+            preferences: preferences,
+            popoverVisible: true,
+            lowPower: true,
+            sleeping: false
+        )
+
+        XCTAssertEqual(periods[.cpu], 30)
+        XCTAssertEqual(periods[.memory], 30)
+        XCTAssertEqual(periods[.network], 30)
+    }
+
     func testCompactModeSamplesEverySelectedMetric() {
         let preferences = PreferencesSnapshot(
             primaryMetric: .cpu,
