@@ -107,7 +107,7 @@ xcodebuild \
 
 ```bash
 ./scripts/static_constraints.sh
-(cd scripts && python3 -m unittest test_measure_lightweight.py test_release_tools.py)
+(cd scripts && python3 -m unittest test_measure_lightweight.py test_release_tools.py test_localization_catalog.py)
 xcodebuild \
   -project Metrilens.xcodeproj \
   -scheme Metrilens \
@@ -116,9 +116,13 @@ xcodebuild \
   -derivedDataPath .build/DerivedData \
   CODE_SIGNING_ALLOWED=NO \
   test
+./scripts/test_localizations.sh
+./scripts/test_ui.sh
 ```
 
-GitHub Actions 在 Apple Silicon `macos-15` runner 上执行静态约束、Python 测试、Swift 测试、简体中文/英文界面测试、Release 构建及包结构验证；测试失败时上传 `xcresult`。发布 workflow 还会验证 tag 指向的提交就是实际构建提交。
+`test_localizations.sh` 校验集中式中英文文案目录并在两种语言环境下运行界面质量测试；`test_ui.sh` 启动真实 `XCUIApplication`，覆盖“菜单栏 → 弹窗 → 设置 → 切换 English”的端到端路径。XCUITest 需要当前 macOS 会话允许测试运行器启用 UI 自动化；若本机在测试方法执行前报告 `Timed out while enabling automation mode`，请在具备图形会话及自动化权限的环境重试。
+
+GitHub Actions 在 Apple Silicon `macos-15` runner 上执行静态约束、Python 测试、Swift 测试、中英文界面测试、端到端 XCUITest、Release 构建及包结构验证；测试失败时上传 `xcresult`。发布 workflow 还会验证 tag 指向的提交就是实际构建提交。
 
 完整轻量化门禁要求工作树无未提交修改，分标准与低电量两个场景，总计约 45 分钟，并需要 `fs_usage` 的管理员授权。只有在具备对应电源状态与时间条件时才运行：
 

@@ -119,7 +119,7 @@ final class SparklineView: NSView {
 
     private func drawCollectingLabel() {
         let text = NSAttributedString(
-            string: language.text("正在收集", "Collecting"),
+            string: language.localized("Collecting"),
             attributes: [
                 .font: NSFont.systemFont(ofSize: 10),
                 .foregroundColor: NSColor.secondaryLabelColor
@@ -170,29 +170,26 @@ final class SparklineView: NSView {
 
     private func updateAccessibility() {
         setAccessibilityLabel(
-            language.text(
-                "最近 60 秒\(metricName)使用率",
-                "\(metricName) usage over the last 60 seconds"
+            language.localized(
+                "sparkline.accessibilityLabel",
+                arguments: metricName
             )
         )
         guard let current = points.last?.percent else {
             setAccessibilityValue(
                 isCollecting
-                    ? language.text("正在收集", "Collecting")
-                    : language.text("暂无样本", "No samples")
+                    ? language.localized("Collecting")
+                    : language.localized("No samples")
             )
             return
         }
         let collecting = isCollecting
-            ? language.text("，仍在收集", ", still collecting")
+            ? language.localized(", still collecting")
             : ""
         let summaryText: String
         if let summary {
             summaryText = String(
-                format: language.text(
-                    "，平均 %.1f%%，峰值 %.1f%%",
-                    ", average %.1f%%, peak %.1f%%"
-                ),
+                format: language.localized(", average %.1f%%, peak %.1f%%"),
                 summary.average,
                 summary.peak
             )
@@ -201,10 +198,7 @@ final class SparklineView: NSView {
         }
         setAccessibilityValue(
             String(
-                format: language.text(
-                    "%d 个样本，当前 %.1f%%%@%@",
-                    "%d samples, current %.1f%%%@%@"
-                ),
+                format: language.localized("%d samples, current %.1f%%%@%@"),
                 points.count,
                 current,
                 summaryText,

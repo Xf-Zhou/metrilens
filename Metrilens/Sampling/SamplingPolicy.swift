@@ -8,23 +8,23 @@ struct SamplingPolicy {
         sleeping: Bool
     ) -> [ProviderID: TimeInterval] {
         guard !sleeping else { return [:] }
-        let activePeriod = lowPower ? max(5, preferences.refreshInterval) : preferences.refreshInterval
+        let activePeriod = lowPower ? max(5, preferences.sampling.refreshInterval) : preferences.sampling.refreshInterval
         let displayedMetrics = Set(preferences.displayedMetrics)
         let samplesCPU = popoverVisible
             || displayedMetrics.contains(.cpu)
-            || (preferences.alertsEnabled && preferences.cpuAlertEnabled)
+            || (preferences.alerts.enabled && preferences.alerts.enabledKinds.contains(.cpu))
         let samplesMemory = popoverVisible
             || displayedMetrics.contains(.memory)
-            || (preferences.alertsEnabled && preferences.memoryAlertEnabled)
+            || (preferences.alerts.enabled && preferences.alerts.enabledKinds.contains(.memory))
         let samplesBattery = popoverVisible
             || displayedMetrics.contains(.battery)
-            || (preferences.alertsEnabled
-                && (preferences.batteryLevelAlertEnabled
-                    || preferences.batteryTemperatureAlertEnabled))
+            || (preferences.alerts.enabled
+                && (preferences.alerts.enabledKinds.contains(.batteryLevel)
+                    || preferences.alerts.enabledKinds.contains(.batteryTemperature)))
         let samplesNetwork = popoverVisible || displayedMetrics.contains(.network)
         let samplesDisk = popoverVisible
             || displayedMetrics.contains(.disk)
-            || (preferences.alertsEnabled && preferences.diskFreeAlertEnabled)
+            || (preferences.alerts.enabled && preferences.alerts.enabledKinds.contains(.diskFree))
         var result: [ProviderID: TimeInterval] = [:]
         if samplesBattery {
             if lowPower {

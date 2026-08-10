@@ -28,7 +28,10 @@ python3 "$repo_dir/scripts/release_tools.py" check-source "$repo_dir" "$version"
 "$repo_dir/scripts/static_constraints.sh"
 (
   cd "$repo_dir/scripts"
-  python3 -m unittest test_measure_lightweight.py test_release_tools.py
+  python3 -m unittest \
+    test_measure_lightweight.py \
+    test_release_tools.py \
+    test_localization_catalog.py
 )
 
 xcodebuild \
@@ -41,6 +44,7 @@ xcodebuild \
   test
 
 "$repo_dir/scripts/test_localizations.sh"
+"$repo_dir/scripts/test_ui.sh"
 
 "$repo_dir/scripts/build_local_release.sh"
 

@@ -69,17 +69,17 @@ final class StateAndDiagnosticsTests: XCTestCase {
     func testMetricTextColorMarksOnlyStaleValuesAsSecondary() {
         let stamp = SampleStamp(wallTime: Date(), uptime: 1)
         XCTAssertTrue(
-            PopoverController.metricTextColor(
+            PopoverMetricFormatter.metricTextColor(
                 MetricState<Double>.stale(35, stamp)
             ).isEqual(NSColor.secondaryLabelColor)
         )
         XCTAssertTrue(
-            PopoverController.metricTextColor(
+            PopoverMetricFormatter.metricTextColor(
                 MetricState<Double>.available(35, stamp)
             ).isEqual(NSColor.labelColor)
         )
         XCTAssertTrue(
-            PopoverController.metricTextColor(
+            PopoverMetricFormatter.metricTextColor(
                 MetricState<Double>.unavailable(.fieldMissing)
             ).isEqual(NSColor.labelColor)
         )
@@ -110,11 +110,7 @@ final class StateAndDiagnosticsTests: XCTestCase {
         snapshot.thermalLevel = .serious
         let controller = StatusItemController(
             preferences: PreferencesSnapshot(
-                primaryMetric: .cpu,
-                refreshInterval: 1,
-                launchAtLogin: false,
-                showsSparkline: true,
-                language: .simplifiedChinese
+                display: DisplaySettings(language: .simplifiedChinese)
             )
         )
 
@@ -219,13 +215,11 @@ final class StateAndDiagnosticsTests: XCTestCase {
         )
         snapshot.batteryTemperature = .available(43, stamp)
         let preferences = PreferencesSnapshot(
-            primaryMetric: .cpu,
-            refreshInterval: 1,
-            launchAtLogin: false,
-            showsSparkline: true,
-            statusDisplayMode: .compact,
-            compactMetrics: [.cpu, .memory, .battery],
-            language: .simplifiedChinese
+            display: DisplaySettings(
+                statusDisplayMode: .compact,
+                compactMetrics: [.cpu, .memory, .battery],
+                language: .simplifiedChinese
+            )
         )
 
         let presentation = StatusItemController.presentation(
@@ -236,6 +230,45 @@ final class StateAndDiagnosticsTests: XCTestCase {
         XCTAssertEqual(presentation.title, "CPU 23% · 内存 72% · 电池 43.0°C")
         XCTAssertEqual(presentation.staleStamps, [])
         XCTAssertEqual(presentation.severity, .warning)
+    }
+
+    func testCompactStatusItemUsesEverySeparatorExactly() {
+        let stamp = SampleStamp(wallTime: Date(), uptime: 10)
+        var snapshot = SystemSnapshot.initial()
+        snapshot.cpu = .available(CPUMetric(percent: 23), stamp)
+        snapshot.memory = .available(
+            MemoryMetric(
+                usedBytes: 72,
+                totalBytes: 100,
+                availableBytes: 28,
+                purgeableBytes: 0
+            ),
+            stamp
+        )
+
+        let cases: [(StatusSeparator, String, String)] = [
+            (.dot, " · ", "CPU 23% · RAM 72%"),
+            (.bar, " | ", "CPU 23% | RAM 72%"),
+            (.space, "  ", "CPU 23%  RAM 72%")
+        ]
+        for (separator, expectedSeparator, expectedTitle) in cases {
+            let preferences = PreferencesSnapshot(
+                display: DisplaySettings(
+                    statusDisplayMode: .compact,
+                    compactMetrics: [.cpu, .memory],
+                    statusSeparator: separator,
+                    language: .english
+                )
+            )
+            XCTAssertEqual(separator.text, expectedSeparator)
+            XCTAssertEqual(
+                StatusItemController.presentation(
+                    preferences: preferences,
+                    snapshot: snapshot
+                ).title,
+                expectedTitle
+            )
+        }
     }
 
     func testCompactStatusItemUsesClearEnglishMetricNames() {
@@ -260,14 +293,13 @@ final class StateAndDiagnosticsTests: XCTestCase {
             stamp
         )
         let preferences = PreferencesSnapshot(
-            primaryMetric: .memory,
-            refreshInterval: 1,
-            launchAtLogin: false,
-            showsSparkline: true,
-            statusDisplayMode: .compact,
-            compactMetrics: [.memory, .battery, .disk],
-            statusDecimalPlaces: 1,
-            language: .english
+            display: DisplaySettings(
+                primaryMetric: .memory,
+                statusDisplayMode: .compact,
+                compactMetrics: [.memory, .battery, .disk],
+                statusDecimalPlaces: 1,
+                language: .english
+            )
         )
 
         XCTAssertEqual(
@@ -294,12 +326,11 @@ final class StateAndDiagnosticsTests: XCTestCase {
         func presentation(language: AppLanguage) -> StatusMetricPresentation {
             StatusItemController.presentation(
                 preferences: PreferencesSnapshot(
-                    primaryMetric: .network,
-                    refreshInterval: 1,
-                    launchAtLogin: false,
-                    showsSparkline: true,
-                    statusDecimalPlaces: 1,
-                    language: language
+                    display: DisplaySettings(
+                        primaryMetric: .network,
+                        statusDecimalPlaces: 1,
+                        language: language
+                    )
                 ),
                 snapshot: snapshot
             )
@@ -333,10 +364,14 @@ final class StateAndDiagnosticsTests: XCTestCase {
     }
 
     func testSettingsExplainTheMemoryProductDefinition() {
-        XCTAssertTrue(PreferencesController.sourceInformation.contains("internal"))
-        XCTAssertTrue(PreferencesController.sourceInformation.contains("wired"))
-        XCTAssertTrue(PreferencesController.sourceInformation.contains("compressor"))
-        XCTAssertTrue(PreferencesController.sourceInformation.contains("活动监视器"))
+        let sourceInformation = AppTextCatalog.localized(
+            "preferences.sourceInformation",
+            language: .simplifiedChinese
+        )
+        XCTAssertTrue(sourceInformation.contains("internal"))
+        XCTAssertTrue(sourceInformation.contains("wired"))
+        XCTAssertTrue(sourceInformation.contains("compressor"))
+        XCTAssertTrue(sourceInformation.contains("活动监视器"))
     }
 
     func testSystemEventCoalescerDoesNotExtendWindowForRejectedEvents() {

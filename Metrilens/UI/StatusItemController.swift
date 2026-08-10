@@ -24,6 +24,7 @@ final class StatusItemController: NSObject {
             button.target = self
             button.action = #selector(togglePopover)
             button.sendAction(on: [.leftMouseUp])
+            button.setAccessibilityIdentifier("metrilens.statusItem")
             updateLocalizedMetadata()
             setTitle("CPU —", severity: .normal)
             TaskPowerProbe.signalReadyIfRequested()
@@ -64,31 +65,22 @@ final class StatusItemController: NSObject {
         )
         var accessibilityValue = presentation.title
         if !presentation.staleStamps.isEmpty {
-            accessibilityValue += preferences.language.text(
-                "，数据已过期",
-                ", data is stale"
-            )
+            accessibilityValue += preferences.display.language.localized(", data is stale")
         }
         if MetricPresentationPolicy.thermalSeverity(snapshot.thermalLevel) >= .warning {
-            accessibilityValue += preferences.language.text(
-                "，系统热状态警告",
-                ", system thermal warning"
-            )
+            accessibilityValue += preferences.display.language.localized(", system thermal warning")
         }
         statusItem.button?.setAccessibilityValue(accessibilityValue)
         if let stamp = presentation.staleStamps.max(by: {
             $0.wallTime < $1.wallTime
         }) {
             statusItem.button?.toolTip =
-                preferences.language.text(
-                    "Metrilens 系统状态\n数据已过期，采样于 \(Self.timeFormatter.string(from: stamp.wallTime))",
-                    "Metrilens System Status\nData is stale; sampled at \(Self.timeFormatter.string(from: stamp.wallTime))"
+                preferences.display.language.localized(
+                    "status.staleTooltip",
+                    arguments: Self.timeFormatter.string(from: stamp.wallTime)
                 )
         } else {
-            statusItem.button?.toolTip = preferences.language.text(
-                "Metrilens 系统状态",
-                "Metrilens System Status"
-            )
+            statusItem.button?.toolTip = preferences.display.language.localized("Metrilens System Status")
         }
     }
 
@@ -134,10 +126,7 @@ final class StatusItemController: NSObject {
     ) -> StatusMetricPresentation {
         presentation(
             preferences: PreferencesSnapshot(
-                primaryMetric: primaryMetric,
-                refreshInterval: 1,
-                launchAtLogin: false,
-                showsSparkline: true
+                display: DisplaySettings(primaryMetric: primaryMetric)
             ),
             snapshot: snapshot
         )
@@ -152,15 +141,15 @@ final class StatusItemController: NSObject {
             segment(
                 metric: $0,
                 snapshot: snapshot,
-                decimalPlaces: preferences.statusDecimalPlaces,
-                language: preferences.language
+                decimalPlaces: preferences.display.statusDecimalPlaces,
+                language: preferences.display.language
             )
         }
         let staleStamps = segments.compactMap(\.staleStamp)
         let staleSuffix = staleStamps.isEmpty ? "" : " ⏱"
         return StatusMetricPresentation(
             title: segments.map(\.title).joined(
-                separator: preferences.statusSeparator.text
+                separator: preferences.display.statusSeparator.text
             ) + staleSuffix,
             staleStamps: staleStamps,
             severity: segments.map(\.severity).max() ?? .normal
@@ -182,7 +171,7 @@ final class StatusItemController: NSObject {
             )
         case .memory:
             return percentSegment(
-                prefix: language.text("内存", "RAM"),
+                prefix: language.localized("RAM"),
                 state: snapshot.memory.map(\.percent),
                 decimalPlaces: decimalPlaces
             )
@@ -234,7 +223,7 @@ final class StatusItemController: NSObject {
         decimalPlaces: Int,
         language: AppLanguage
     ) -> MetricSegment {
-        let prefix = language.text("电池", "Batt")
+        let prefix = language.localized("Batt")
         guard let value = state.value else {
             return MetricSegment(
                 title: "\(prefix) —",
@@ -256,7 +245,7 @@ final class StatusItemController: NSObject {
         decimalPlaces: Int,
         language: AppLanguage
     ) -> MetricSegment {
-        let prefix = language.text("网络", "Net")
+        let prefix = language.localized("Net")
         guard let value = state.value else {
             return MetricSegment(
                 title: "\(prefix) —",
@@ -277,7 +266,7 @@ final class StatusItemController: NSObject {
         decimalPlaces: Int,
         language: AppLanguage
     ) -> MetricSegment {
-        let prefix = language.text("磁盘余", "Free")
+        let prefix = language.localized("Free")
         guard let value = state.value else {
             return MetricSegment(
                 title: "\(prefix) —",
@@ -319,21 +308,12 @@ final class StatusItemController: NSObject {
     }
 
     private func updateLocalizedMetadata() {
-        statusItem.button?.toolTip = preferences.language.text(
-            "Metrilens 系统状态",
-            "Metrilens System Status"
-        )
+        statusItem.button?.toolTip = preferences.display.language.localized("Metrilens System Status")
         statusItem.button?.setAccessibilityLabel(
-            preferences.language.text(
-                "Metrilens 系统状态",
-                "Metrilens System Status"
-            )
+            preferences.display.language.localized("Metrilens System Status")
         )
         statusItem.button?.setAccessibilityHelp(
-            preferences.language.text(
-                "打开 CPU、内存、电池、网络、磁盘和发热诊断",
-                "Open CPU, memory, battery, network, disk, and heat diagnostics"
-            )
+            preferences.display.language.localized("Open CPU, memory, battery, network, disk, and heat diagnostics")
         )
     }
 

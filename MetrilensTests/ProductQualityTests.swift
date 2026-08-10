@@ -2,6 +2,42 @@ import XCTest
 @testable import Metrilens
 
 final class ProductQualityTests: XCTestCase {
+    func testLocalizationCatalogHasCompleteFormats() {
+        XCTAssertGreaterThan(AppTextCatalog.keys.count, 100)
+        XCTAssertEqual(AppTextCatalog.validationFailures, [])
+    }
+
+    func testNotificationStatusRefreshPreservesMetricOrderSelection() {
+        let form = PreferencesForm()
+        let snapshot = PreferencesSnapshot()
+        form.render(
+            snapshot: snapshot,
+            loginItemEnabled: false,
+            notificationState: .unknown
+        )
+        form.metricOrderPopup.selectItem(at: 3)
+
+        form.updateNotificationStatus(
+            .authorized,
+            language: snapshot.display.language
+        )
+
+        XCTAssertEqual(form.metricOrderPopup.indexOfSelectedItem, 3)
+    }
+
+    func testMissingBuildInformationUsesLocalizedUnknownText() {
+        let build = AppBuildInformation(version: nil, build: nil)
+
+        XCTAssertEqual(
+            AboutController.versionText(build: build, language: .english),
+            "Version Unknown (Unknown)"
+        )
+        XCTAssertEqual(
+            AboutController.versionText(build: build, language: .simplifiedChinese),
+            "版本 未知（未知）"
+        )
+    }
+
     private var defaults: UserDefaults!
     private var suiteName: String!
 
@@ -39,12 +75,7 @@ final class ProductQualityTests: XCTestCase {
 
         XCTAssertEqual(
             preferences.snapshot,
-            PreferencesSnapshot(
-                primaryMetric: .cpu,
-                refreshInterval: 1,
-                launchAtLogin: false,
-                showsSparkline: true
-            )
+            PreferencesSnapshot()
         )
         let persistent = defaults.persistentDomain(forName: suiteName) ?? [:]
         XCTAssertNil(persistent["primaryMetric"])
@@ -65,20 +96,26 @@ final class ProductQualityTests: XCTestCase {
 
     func testResetPreferencesRestoresEveryDefaultAndNotifiesOnce() {
         let preferences = AppPreferences(defaults: defaults)
-        preferences.setPrimaryMetric(.battery)
-        preferences.setRefreshInterval(5)
-        preferences.setLaunchAtLogin(true)
-        preferences.setShowsSparkline(false)
-        preferences.setStatusDisplayMode(.compact)
-        preferences.setCompactMetrics([.memory])
-        preferences.setMetricOrder([.disk, .network, .battery, .memory, .cpu])
-        preferences.setStatusSeparator(.bar)
-        preferences.setStatusDecimalPlaces(1)
-        preferences.setLanguage(.english)
-        preferences.setAlertsEnabled(true)
-        preferences.setCPUAlertThreshold(95)
-        preferences.setMemoryAlertThreshold(80)
-        preferences.setAlertSustainDuration(120)
+        preferences.updateDisplay {
+            $0.primaryMetric = .battery
+            $0.statusDisplayMode = .compact
+            $0.compactMetrics = [.memory]
+            $0.metricOrder = [.disk, .network, .battery, .memory, .cpu]
+            $0.statusSeparator = .bar
+            $0.statusDecimalPlaces = 1
+            $0.language = .english
+        }
+        preferences.updateSampling {
+            $0.refreshInterval = 5
+            $0.showsSparkline = false
+        }
+        preferences.updateSystem { $0.launchAtLogin = true }
+        preferences.updateAlerts {
+            $0.enabled = true
+            $0.thresholds.cpu = 95
+            $0.thresholds.memory = 80
+            $0.sustainDuration = 120
+        }
 
         var notifications = 0
         preferences.onChange = { _ in notifications += 1 }
@@ -87,12 +124,7 @@ final class ProductQualityTests: XCTestCase {
         XCTAssertEqual(notifications, 1)
         XCTAssertEqual(
             preferences.snapshot,
-            PreferencesSnapshot(
-                primaryMetric: .cpu,
-                refreshInterval: 1,
-                launchAtLogin: false,
-                showsSparkline: true
-            )
+            PreferencesSnapshot()
         )
     }
 
@@ -101,7 +133,7 @@ final class ProductQualityTests: XCTestCase {
 
         let preferences = AppPreferences(defaults: defaults)
 
-        XCTAssertEqual(preferences.snapshot.refreshInterval, 1)
+        XCTAssertEqual(preferences.snapshot.sampling.refreshInterval, 1)
         XCTAssertNil(
             defaults.persistentDomain(forName: suiteName)?["refreshInterval"]
         )
@@ -114,11 +146,11 @@ final class ProductQualityTests: XCTestCase {
             [1, 2, 5, 10, 30]
         )
 
-        preferences.setRefreshInterval(10)
-        XCTAssertEqual(preferences.snapshot.refreshInterval, 10)
+        preferences.updateSampling { $0.refreshInterval = 10 }
+        XCTAssertEqual(preferences.snapshot.sampling.refreshInterval, 10)
 
-        preferences.setRefreshInterval(30)
-        XCTAssertEqual(preferences.snapshot.refreshInterval, 30)
+        preferences.updateSampling { $0.refreshInterval = 30 }
+        XCTAssertEqual(preferences.snapshot.sampling.refreshInterval, 30)
     }
 
     func testDiagnosticReportHasOnlyWhitelistedPrivacySafeFields() {
@@ -148,11 +180,8 @@ final class ProductQualityTests: XCTestCase {
                 lowPowerModeEnabled: false
             ),
             preferences: PreferencesSnapshot(
-                primaryMetric: .cpu,
-                refreshInterval: 2,
-                launchAtLogin: false,
-                showsSparkline: true,
-                language: .simplifiedChinese
+                display: DisplaySettings(language: .simplifiedChinese),
+                sampling: SamplingSettings(refreshInterval: 2)
             ),
             snapshot: snapshot
         )
@@ -259,7 +288,7 @@ final class ProductQualityTests: XCTestCase {
     func testPopoverKeyboardFocusInvokesConfiguredHandler() {
         var focusRequests = 0
         let controller = PopoverController(
-            showsSparkline: true,
+            preferences: PreferencesSnapshot(),
             keyboardFocusHandler: { _ in focusRequests += 1 }
         )
 
@@ -290,17 +319,14 @@ final class ProductQualityTests: XCTestCase {
         snapshot.thermalLevel = .critical
         let controller = PopoverController(
             preferences: PreferencesSnapshot(
-                primaryMetric: .cpu,
-                refreshInterval: 1,
-                launchAtLogin: false,
-                showsSparkline: true,
-                language: .english
+                display: DisplaySettings(language: .english)
             )
         )
 
         controller.update(snapshot: snapshot)
         let layout = controller.layoutStateForTesting()
 
+        XCTAssertGreaterThan(layout.viewportHeight, 0)
         XCTAssertTrue(layout.scrollable)
         XCTAssertGreaterThan(layout.contentHeight, layout.viewportHeight)
     }
@@ -320,7 +346,11 @@ final class ProductQualityTests: XCTestCase {
 
     func testPopoverHidesWholeBatterySectionOnlyWhenBatteryIsAbsent() {
         let stamp = SampleStamp(wallTime: Date(), uptime: 10)
-        let controller = PopoverController(showsSparkline: false)
+        let controller = PopoverController(
+            preferences: PreferencesSnapshot(
+                sampling: SamplingSettings(showsSparkline: false)
+            )
+        )
         var snapshot = SystemSnapshot.initial()
         snapshot.battery = .unsupported(.noHardware)
         snapshot.batteryTemperature = .unsupported(.noHardware)
@@ -348,7 +378,11 @@ final class ProductQualityTests: XCTestCase {
 
     func testPopoverHidesUnknownBatteryHealthAndRestoresKnownHealth() {
         let stamp = SampleStamp(wallTime: Date(), uptime: 10)
-        let controller = PopoverController(showsSparkline: false)
+        let controller = PopoverController(
+            preferences: PreferencesSnapshot(
+                sampling: SamplingSettings(showsSparkline: false)
+            )
+        )
         var snapshot = SystemSnapshot.initial()
         snapshot.battery = .available(
             BatteryMetric(
@@ -386,11 +420,8 @@ final class ProductQualityTests: XCTestCase {
         let stamp = SampleStamp(wallTime: Date(), uptime: 10)
         let controller = PopoverController(
             preferences: PreferencesSnapshot(
-                primaryMetric: .cpu,
-                refreshInterval: 1,
-                launchAtLogin: false,
-                showsSparkline: false,
-                language: .simplifiedChinese
+                display: DisplaySettings(language: .simplifiedChinese),
+                sampling: SamplingSettings(showsSparkline: false)
             )
         )
         var snapshot = SystemSnapshot.initial()
@@ -424,11 +455,11 @@ final class ProductQualityTests: XCTestCase {
         let stamp = SampleStamp(wallTime: Date(), uptime: 10)
         let controller = PopoverController(
             preferences: PreferencesSnapshot(
-                primaryMetric: .network,
-                refreshInterval: 1,
-                launchAtLogin: false,
-                showsSparkline: false,
-                language: .simplifiedChinese
+                display: DisplaySettings(
+                    primaryMetric: .network,
+                    language: .simplifiedChinese
+                ),
+                sampling: SamplingSettings(showsSparkline: false)
             )
         )
         var snapshot = SystemSnapshot.initial()

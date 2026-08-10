@@ -103,11 +103,7 @@ final class MetricAlertTests: XCTestCase {
         var evaluator = MetricAlertEvaluator(cooldown: 600)
         let enabled = alertPreferences()
         let disabled = PreferencesSnapshot(
-            primaryMetric: .cpu,
-            refreshInterval: 1,
-            launchAtLogin: false,
-            showsSparkline: true,
-            alertsEnabled: false
+            alerts: AlertSettings(enabled: false)
         )
         let stamp = SampleStamp(wallTime: Date(), uptime: 0)
         var snapshot = SystemSnapshot.initial()
@@ -153,14 +149,10 @@ final class MetricAlertTests: XCTestCase {
 
         controller.setPreferences(
             PreferencesSnapshot(
-                primaryMetric: .cpu,
-                refreshInterval: 1,
-                launchAtLogin: false,
-                showsSparkline: true,
-                alertsEnabled: true,
-                cpuAlertThreshold: 95,
-                memoryAlertThreshold: 90,
-                alertSustainDuration: 30
+                alerts: AlertSettings(
+                    enabled: true,
+                    thresholds: AlertThresholds(cpu: 95)
+                )
             )
         )
         uptime = 1
@@ -229,18 +221,10 @@ final class MetricAlertTests: XCTestCase {
             stamp
         )
         let preferences = PreferencesSnapshot(
-            primaryMetric: .cpu,
-            refreshInterval: 1,
-            launchAtLogin: false,
-            showsSparkline: true,
-            alertsEnabled: true,
-            cpuAlertEnabled: false,
-            memoryAlertEnabled: false,
-            thermalAlertEnabled: false,
-            batteryLevelAlertEnabled: true,
-            batteryTemperatureAlertEnabled: false,
-            diskFreeAlertEnabled: true,
-            alertSustainDuration: 30
+            alerts: AlertSettings(
+                enabled: true,
+                enabledKinds: [.batteryLevel, .diskFree]
+            )
         )
         _ = evaluator.evaluate(
             snapshot: snapshot,
@@ -260,14 +244,7 @@ final class MetricAlertTests: XCTestCase {
 
     private func alertPreferences() -> PreferencesSnapshot {
         PreferencesSnapshot(
-            primaryMetric: .cpu,
-            refreshInterval: 1,
-            launchAtLogin: false,
-            showsSparkline: true,
-            alertsEnabled: true,
-            cpuAlertThreshold: 90,
-            memoryAlertThreshold: 90,
-            alertSustainDuration: 30
+            alerts: AlertSettings(enabled: true)
         )
     }
 

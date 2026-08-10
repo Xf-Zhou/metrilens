@@ -15,9 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         loginItemController: loginItemController
     )
     private lazy var aboutController = AboutController(
-        language: preferences.snapshot.language
+        language: preferences.snapshot.display.language
     ) { [weak self] in
-        guard let self else { return "Metrilens 诊断信息\nstatus=unavailable" }
+        guard let self else { return "status=unavailable" }
         return DiagnosticReport.make(
             build: .current(),
             context: .current(),
@@ -106,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.popoverController.setPreferences(value)
             self.popoverController.update(snapshot: self.latestSnapshot)
             self.preferencesController.setPreferences(value)
-            self.aboutController.setLanguage(value.language)
+            self.aboutController.setLanguage(value.display.language)
             self.alertController.setPreferences(value)
             self.sampler.updatePreferences(value)
         }

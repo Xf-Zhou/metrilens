@@ -222,16 +222,14 @@ final class SystemMetricProviderTests: XCTestCase {
             stamp
         )
         let preferences = PreferencesSnapshot(
-            primaryMetric: .cpu,
-            refreshInterval: 1,
-            launchAtLogin: false,
-            showsSparkline: true,
-            statusDisplayMode: .compact,
-            compactMetrics: [.cpu, .disk],
-            metricOrder: [.disk, .cpu, .memory, .battery, .network],
-            statusSeparator: .bar,
-            statusDecimalPlaces: 1,
-            language: .english
+            display: DisplaySettings(
+                statusDisplayMode: .compact,
+                compactMetrics: [.cpu, .disk],
+                metricOrder: [.disk, .cpu, .memory, .battery, .network],
+                statusSeparator: .bar,
+                statusDecimalPlaces: 1,
+                language: .english
+            )
         )
 
         XCTAssertEqual(

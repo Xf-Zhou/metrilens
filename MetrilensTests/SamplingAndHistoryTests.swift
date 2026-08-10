@@ -92,12 +92,7 @@ final class SamplingAndHistoryTests: XCTestCase {
     }
 
     func testSamplingPolicyForClosedPopover() {
-        let cpu = PreferencesSnapshot(
-            primaryMetric: .cpu,
-            refreshInterval: 1,
-            launchAtLogin: false,
-            showsSparkline: true
-        )
+        let cpu = PreferencesSnapshot()
         XCTAssertEqual(
             SamplingPolicy.resolve(
                 preferences: cpu,
@@ -109,10 +104,7 @@ final class SamplingAndHistoryTests: XCTestCase {
         )
 
         let battery = PreferencesSnapshot(
-            primaryMetric: .battery,
-            refreshInterval: 1,
-            launchAtLogin: false,
-            showsSparkline: true
+            display: DisplaySettings(primaryMetric: .battery)
         )
         XCTAssertEqual(
             SamplingPolicy.resolve(
@@ -127,10 +119,7 @@ final class SamplingAndHistoryTests: XCTestCase {
 
     func testSamplingPolicyForPopoverLowPowerAndSleep() {
         let preferences = PreferencesSnapshot(
-            primaryMetric: .memory,
-            refreshInterval: 1,
-            launchAtLogin: false,
-            showsSparkline: true
+            display: DisplaySettings(primaryMetric: .memory)
         )
         XCTAssertEqual(
             SamplingPolicy.resolve(
@@ -174,10 +163,8 @@ final class SamplingAndHistoryTests: XCTestCase {
 
     func testLowPowerModeDoesNotSpeedUpLongRefreshIntervals() {
         let preferences = PreferencesSnapshot(
-            primaryMetric: .memory,
-            refreshInterval: 30,
-            launchAtLogin: false,
-            showsSparkline: true
+            display: DisplaySettings(primaryMetric: .memory),
+            sampling: SamplingSettings(refreshInterval: 30)
         )
 
         let periods = SamplingPolicy.resolve(
@@ -194,12 +181,11 @@ final class SamplingAndHistoryTests: XCTestCase {
 
     func testCompactModeSamplesEverySelectedMetric() {
         let preferences = PreferencesSnapshot(
-            primaryMetric: .cpu,
-            refreshInterval: 2,
-            launchAtLogin: false,
-            showsSparkline: true,
-            statusDisplayMode: .compact,
-            compactMetrics: [.memory, .battery]
+            display: DisplaySettings(
+                statusDisplayMode: .compact,
+                compactMetrics: [.memory, .battery]
+            ),
+            sampling: SamplingSettings(refreshInterval: 2)
         )
 
         XCTAssertEqual(
@@ -215,11 +201,9 @@ final class SamplingAndHistoryTests: XCTestCase {
 
     func testAlertsKeepCPUAndMemorySamplingActiveWhenPopoverIsClosed() {
         let preferences = PreferencesSnapshot(
-            primaryMetric: .battery,
-            refreshInterval: 2,
-            launchAtLogin: false,
-            showsSparkline: true,
-            alertsEnabled: true
+            display: DisplaySettings(primaryMetric: .battery),
+            sampling: SamplingSettings(refreshInterval: 2),
+            alerts: AlertSettings(enabled: true)
         )
 
         XCTAssertEqual(
@@ -234,12 +218,7 @@ final class SamplingAndHistoryTests: XCTestCase {
     }
 
     func testHiddenNetworkAndDiskProvidersRemainPaused() {
-        let preferences = PreferencesSnapshot(
-            primaryMetric: .cpu,
-            refreshInterval: 1,
-            launchAtLogin: false,
-            showsSparkline: true
-        )
+        let preferences = PreferencesSnapshot()
 
         let periods = SamplingPolicy.resolve(
             preferences: preferences,

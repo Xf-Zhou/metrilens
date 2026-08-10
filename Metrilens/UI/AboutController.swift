@@ -110,49 +110,34 @@ final class AboutController: NSWindowController {
     }
 
     private func applyLocalization() {
-        window?.title = language.text("关于 Metrilens", "About Metrilens")
+        window?.title = language.localized("About Metrilens")
         icon.setAccessibilityLabel(
-            language.text("Metrilens App 图标", "Metrilens App Icon")
+            language.localized("Metrilens App Icon")
         )
-        versionLabel.stringValue = language.text(
-            "版本 \(build.version)（\(build.build)）",
-            "Version \(build.version) (\(build.build))"
-        )
-        summaryLabel.stringValue = language.text(
-            "轻量、隐私优先的 Apple Silicon 菜单栏系统状态查看器。",
-            "A lightweight, privacy-first Apple Silicon menu bar system monitor."
-        )
+        versionLabel.stringValue = Self.versionText(build: build, language: language)
+        summaryLabel.stringValue = language.localized("A lightweight, privacy-first Apple Silicon menu bar system monitor.")
         privacyLabel.stringValue = DiagnosticReport.privacyDisclosure(
             language: language
         )
-        copyButton.title = language.text("复制诊断信息", "Copy Diagnostics")
+        copyButton.title = language.localized("Copy Diagnostics")
         copyButton.setAccessibilityHelp(
-            language.text(
-                "复制不含个人标识的诊断摘要",
-                "Copy a diagnostic summary without personal identifiers"
-            )
+            language.localized("Copy a diagnostic summary without personal identifiers")
         )
-        saveButton.title = language.text("保存诊断报告…", "Save Diagnostic Report…")
+        saveButton.title = language.localized("Save Diagnostic Report…")
         saveButton.setAccessibilityHelp(
-            language.text(
-                "将隐私安全的诊断摘要保存为文本文件",
-                "Save the privacy-safe diagnostic summary as a text file"
-            )
+            language.localized("Save the privacy-safe diagnostic summary as a text file")
         )
-        doneButton.title = language.text("完成", "Done")
+        doneButton.title = language.localized("Done")
     }
 
     @objc private func copyDiagnostics() {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(diagnosticProvider(), forType: .string)
-        copyButton.title = language.text("已复制", "Copied")
+        copyButton.title = language.localized("Copied")
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
             guard let self else { return }
-            self.copyButton.title = self.language.text(
-                "复制诊断信息",
-                "Copy Diagnostics"
-            )
+            self.copyButton.title = self.language.localized("Copy Diagnostics")
         }
     }
 
@@ -172,10 +157,7 @@ final class AboutController: NSWindowController {
                 )
             } catch {
                 let alert = NSAlert()
-                alert.messageText = self.language.text(
-                    "无法保存诊断报告",
-                    "Could Not Save Diagnostic Report"
-                )
+                alert.messageText = self.language.localized("Could Not Save Diagnostic Report")
                 alert.informativeText = error.localizedDescription
                 alert.beginSheetModal(for: window)
             }
@@ -188,6 +170,17 @@ final class AboutController: NSWindowController {
 
     static func diagnosticFilename(date: Date = Date()) -> String {
         "Metrilens-Diagnostics-\(filenameDateFormatter.string(from: date)).txt"
+    }
+
+    static func versionText(
+        build: AppBuildInformation,
+        language: AppLanguage
+    ) -> String {
+        language.localized(
+            "about.version",
+            arguments: build.version ?? language.localized("Unknown"),
+            build.build ?? language.localized("Unknown")
+        )
     }
 
     private static let filenameDateFormatter: DateFormatter = {

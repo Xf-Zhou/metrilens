@@ -303,8 +303,8 @@ final class TaskPowerProbe {
     private func runtimeContext() -> PerformanceRuntimeContext {
         let lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
         return PerformanceRuntimeContext(
-            primaryMetric: preferences.primaryMetric.rawValue,
-            configuredInterval: preferences.refreshInterval,
+            primaryMetric: preferences.display.primaryMetric.rawValue,
+            configuredInterval: preferences.sampling.refreshInterval,
             effectiveInterval: effectiveCPUPeriodProvider() ?? -1,
             lowPowerModeEnabled: lowPower,
             powerSource: Self.currentPowerSource()

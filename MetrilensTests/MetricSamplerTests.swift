@@ -269,12 +269,10 @@ final class MetricSamplerTests: XCTestCase {
         cpu.onSample = { initialSamples.fulfill() }
         memory.onSample = { initialSamples.fulfill() }
         let initialPreferences = PreferencesSnapshot(
-            primaryMetric: .cpu,
-            refreshInterval: 1,
-            launchAtLogin: false,
-            showsSparkline: true,
-            statusDisplayMode: .compact,
-            compactMetrics: [.cpu, .memory]
+            display: DisplaySettings(
+                statusDisplayMode: .compact,
+                compactMetrics: [.cpu, .memory]
+            )
         )
         let sampler = MetricSampler(
             preferences: initialPreferences,
@@ -290,12 +288,11 @@ final class MetricSamplerTests: XCTestCase {
 
         sampler.updatePreferences(
             PreferencesSnapshot(
-                primaryMetric: .cpu,
-                refreshInterval: 5,
-                launchAtLogin: false,
-                showsSparkline: true,
-                statusDisplayMode: .compact,
-                compactMetrics: [.cpu, .memory]
+                display: DisplaySettings(
+                    statusDisplayMode: .compact,
+                    compactMetrics: [.cpu, .memory]
+                ),
+                sampling: SamplingSettings(refreshInterval: 5)
             )
         )
         sampler.waitUntilIdleForTesting()
@@ -544,10 +541,7 @@ final class MetricSamplerTests: XCTestCase {
 
     private func preferences(_ metric: PrimaryMetric) -> PreferencesSnapshot {
         PreferencesSnapshot(
-            primaryMetric: metric,
-            refreshInterval: 1,
-            launchAtLogin: false,
-            showsSparkline: true
+            display: DisplaySettings(primaryMetric: metric)
         )
     }
 }

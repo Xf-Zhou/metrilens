@@ -1,7 +1,7 @@
 import Foundation
 import UserNotifications
 
-enum MetricAlertKind: String, Hashable {
+enum MetricAlertKind: String, Hashable, CaseIterable {
     case cpu
     case memory
     case thermal
@@ -42,39 +42,39 @@ struct MetricAlertEvaluator {
         preferences: PreferencesSnapshot,
         nowUptime: TimeInterval
     ) -> [MetricAlertEvent] {
-        guard preferences.alertsEnabled else {
+        guard preferences.alerts.enabled else {
             resetPending()
             return []
         }
 
         var events: [MetricAlertEvent] = []
-        if preferences.cpuAlertEnabled {
+        if preferences.alerts.enabledKinds.contains(.cpu) {
             evaluateThreshold(
                 kind: .cpu,
                 value: snapshot.cpu.freshValue?.percent,
-                threshold: preferences.cpuAlertThreshold,
+                threshold: preferences.alerts.thresholds.cpu,
                 direction: .above,
-                sustainDuration: preferences.alertSustainDuration,
+                sustainDuration: preferences.alerts.sustainDuration,
                 nowUptime: nowUptime,
                 events: &events
             )
         } else {
             thresholdStartedAt.removeValue(forKey: .cpu)
         }
-        if preferences.memoryAlertEnabled {
+        if preferences.alerts.enabledKinds.contains(.memory) {
             evaluateThreshold(
                 kind: .memory,
                 value: snapshot.memory.freshValue?.percent,
-                threshold: preferences.memoryAlertThreshold,
+                threshold: preferences.alerts.thresholds.memory,
                 direction: .above,
-                sustainDuration: preferences.alertSustainDuration,
+                sustainDuration: preferences.alerts.sustainDuration,
                 nowUptime: nowUptime,
                 events: &events
             )
         } else {
             thresholdStartedAt.removeValue(forKey: .memory)
         }
-        if preferences.batteryLevelAlertEnabled {
+        if preferences.alerts.enabledKinds.contains(.batteryLevel) {
             let battery = snapshot.battery.freshValue
             let level = battery?.powerState == .discharging
                 ? battery?.levelPercent
@@ -82,35 +82,35 @@ struct MetricAlertEvaluator {
             evaluateThreshold(
                 kind: .batteryLevel,
                 value: level,
-                threshold: preferences.batteryLevelAlertThreshold,
+                threshold: preferences.alerts.thresholds.batteryLevel,
                 direction: .below,
-                sustainDuration: preferences.alertSustainDuration,
+                sustainDuration: preferences.alerts.sustainDuration,
                 nowUptime: nowUptime,
                 events: &events
             )
         } else {
             thresholdStartedAt.removeValue(forKey: .batteryLevel)
         }
-        if preferences.batteryTemperatureAlertEnabled {
+        if preferences.alerts.enabledKinds.contains(.batteryTemperature) {
             evaluateThreshold(
                 kind: .batteryTemperature,
                 value: snapshot.batteryTemperature.freshValue,
-                threshold: preferences.batteryTemperatureAlertThreshold,
+                threshold: preferences.alerts.thresholds.batteryTemperature,
                 direction: .above,
-                sustainDuration: preferences.alertSustainDuration,
+                sustainDuration: preferences.alerts.sustainDuration,
                 nowUptime: nowUptime,
                 events: &events
             )
         } else {
             thresholdStartedAt.removeValue(forKey: .batteryTemperature)
         }
-        if preferences.diskFreeAlertEnabled {
+        if preferences.alerts.enabledKinds.contains(.diskFree) {
             evaluateThreshold(
                 kind: .diskFree,
                 value: snapshot.disk.freshValue?.freePercent,
-                threshold: preferences.diskFreeAlertThreshold,
+                threshold: preferences.alerts.thresholds.diskFree,
                 direction: .below,
-                sustainDuration: preferences.alertSustainDuration,
+                sustainDuration: preferences.alerts.sustainDuration,
                 nowUptime: nowUptime,
                 events: &events
             )
@@ -118,7 +118,7 @@ struct MetricAlertEvaluator {
             thresholdStartedAt.removeValue(forKey: .diskFree)
         }
 
-        if preferences.thermalAlertEnabled
+        if preferences.alerts.enabledKinds.contains(.thermal)
             && (snapshot.thermalLevel == .serious
                 || snapshot.thermalLevel == .critical) {
             if canDeliver(.thermal, nowUptime: nowUptime) {
@@ -282,7 +282,7 @@ final class MetricAlertController {
         self.preferences = preferences
         self.delivery = delivery
         self.uptimeProvider = uptimeProvider
-        if preferences.alertsEnabled {
+        if preferences.alerts.enabled {
             requestAuthorization()
         } else {
             refreshAuthorizationStatus()
@@ -295,19 +295,19 @@ final class MetricAlertController {
         self.preferences = preferences
         var resetKinds: Set<MetricAlertKind> = []
         if oldConfiguration.enabled != newConfiguration.enabled {
-            resetKinds.formUnion(Set(MetricAlertKind.all))
+            resetKinds.formUnion(Set(MetricAlertKind.allCases))
         }
         resetKinds.formUnion(oldConfiguration.changedKinds(comparedTo: newConfiguration))
         if !resetKinds.isEmpty {
             evaluator.resetPending(resetKinds)
         }
-        if preferences.alertsEnabled && !oldConfiguration.enabled {
+        if preferences.alerts.enabled && !oldConfiguration.enabled {
             requestAuthorization()
         }
     }
 
     func handle(snapshot: SystemSnapshot) {
-        guard preferences.alertsEnabled, authorizationState.canDeliver else {
+        guard preferences.alerts.enabled, authorizationState.canDeliver else {
             return
         }
         let events = evaluator.evaluate(
@@ -316,7 +316,7 @@ final class MetricAlertController {
             nowUptime: uptimeProvider()
         )
         for event in events {
-            let content = Self.content(for: event, language: preferences.language)
+            let content = Self.content(for: event, language: preferences.display.language)
             delivery.deliver(
                 identifier: "metrilens.alert.\(event.kind.rawValue).\(UUID().uuidString)",
                 title: content.title,
@@ -338,14 +338,8 @@ final class MetricAlertController {
             guard let self else { return }
             self.delivery.deliver(
                 identifier: "metrilens.alert.test.\(UUID().uuidString)",
-                title: self.preferences.language.text(
-                    "Metrilens 测试提醒",
-                    "Metrilens Test Alert"
-                ),
-                body: self.preferences.language.text(
-                    "本地通知工作正常。",
-                    "Local notifications are working."
-                )
+                title: self.preferences.display.language.localized("Metrilens Test Alert"),
+                body: self.preferences.display.language.localized("Local notifications are working.")
             )
         }
         if authorizationState.canDeliver {
@@ -369,58 +363,52 @@ final class MetricAlertController {
         switch event.kind {
         case .cpu:
             return (
-                language.text("CPU 持续高占用", "Sustained High CPU"),
+                language.localized("Sustained High CPU"),
                 String(
-                    format: language.text("当前 CPU 使用率 %.0f%%", "Current CPU usage is %.0f%%"),
+                    format: language.localized("Current CPU usage is %.0f%%"),
                     event.value ?? 0
                 )
             )
         case .memory:
             return (
-                language.text("内存持续高占用", "Sustained High Memory"),
+                language.localized("Sustained High Memory"),
                 String(
-                    format: language.text("当前内存占用 %.0f%%", "Current memory usage is %.0f%%"),
+                    format: language.localized("Current memory usage is %.0f%%"),
                     event.value ?? 0
                 )
             )
         case .thermal:
             return (
-                language.text("系统热状态警告", "System Thermal Warning"),
-                language.text(
-                    "当前状态：\(AppText.thermalName(event.thermalLevel ?? .serious, language: language))",
-                    "Current state: \(AppText.thermalName(event.thermalLevel ?? .serious, language: language))"
+                language.localized("System Thermal Warning"),
+                language.localized(
+                    "alert.currentThermalState",
+                    arguments: AppText.thermalName(
+                        event.thermalLevel ?? .serious,
+                        language: language
+                    )
                 )
             )
         case .batteryLevel:
             return (
-                language.text("电池电量较低", "Low Battery"),
+                language.localized("Low Battery"),
                 String(
-                    format: language.text(
-                        "当前剩余电量 %.0f%%",
-                        "Battery level is %.0f%%"
-                    ),
+                    format: language.localized("Battery level is %.0f%%"),
                     event.value ?? 0
                 )
             )
         case .batteryTemperature:
             return (
-                language.text("电池温度较高", "High Battery Temperature"),
+                language.localized("alert.highBatteryTemperature"),
                 String(
-                    format: language.text(
-                        "当前电池温度 %.1f°C",
-                        "Battery temperature is %.1f°C"
-                    ),
+                    format: language.localized("Battery temperature is %.1f°C"),
                     event.value ?? 0
                 )
             )
         case .diskFree:
             return (
-                language.text("磁盘空间不足", "Low Disk Space"),
+                language.localized("Low Disk Space"),
                 String(
-                    format: language.text(
-                        "启动磁盘可用空间仅剩 %.0f%%",
-                        "Only %.0f%% of the startup disk is available"
-                    ),
+                    format: language.localized("Only %.0f%% of the startup disk is available"),
                     event.value ?? 0
                 )
             )
@@ -456,23 +444,21 @@ private struct AlertConfiguration: Equatable {
     let enabledKinds: Set<MetricAlertKind>
 
     init(_ preferences: PreferencesSnapshot) {
-        enabled = preferences.alertsEnabled
-        cpuThreshold = preferences.cpuAlertThreshold
-        memoryThreshold = preferences.memoryAlertThreshold
-        batteryLevelThreshold = preferences.batteryLevelAlertThreshold
-        batteryTemperatureThreshold = preferences.batteryTemperatureAlertThreshold
-        diskFreeThreshold = preferences.diskFreeAlertThreshold
-        sustainDuration = preferences.alertSustainDuration
-        enabledKinds = Set(MetricAlertKind.all.filter {
-            preferences.isAlertEnabled($0)
-        })
+        enabled = preferences.alerts.enabled
+        cpuThreshold = preferences.alerts.thresholds.cpu
+        memoryThreshold = preferences.alerts.thresholds.memory
+        batteryLevelThreshold = preferences.alerts.thresholds.batteryLevel
+        batteryTemperatureThreshold = preferences.alerts.thresholds.batteryTemperature
+        diskFreeThreshold = preferences.alerts.thresholds.diskFree
+        sustainDuration = preferences.alerts.sustainDuration
+        enabledKinds = preferences.alerts.enabledKinds
     }
 
     func changedKinds(comparedTo other: AlertConfiguration)
         -> Set<MetricAlertKind> {
         var result = enabledKinds.symmetricDifference(other.enabledKinds)
         if sustainDuration != other.sustainDuration {
-            result.formUnion(Set(MetricAlertKind.all.filter { $0 != .thermal }))
+            result.formUnion(Set(MetricAlertKind.allCases.filter { $0 != .thermal }))
         }
         if cpuThreshold != other.cpuThreshold { result.insert(.cpu) }
         if memoryThreshold != other.memoryThreshold { result.insert(.memory) }
@@ -486,29 +472,5 @@ private struct AlertConfiguration: Equatable {
             result.insert(.diskFree)
         }
         return result
-    }
-}
-
-private extension MetricAlertKind {
-    static let all: [MetricAlertKind] = [
-        .cpu,
-        .memory,
-        .thermal,
-        .batteryLevel,
-        .batteryTemperature,
-        .diskFree
-    ]
-}
-
-private extension PreferencesSnapshot {
-    func isAlertEnabled(_ kind: MetricAlertKind) -> Bool {
-        switch kind {
-        case .cpu: return cpuAlertEnabled
-        case .memory: return memoryAlertEnabled
-        case .thermal: return thermalAlertEnabled
-        case .batteryLevel: return batteryLevelAlertEnabled
-        case .batteryTemperature: return batteryTemperatureAlertEnabled
-        case .diskFree: return diskFreeAlertEnabled
-        }
     }
 }

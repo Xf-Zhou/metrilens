@@ -27,80 +27,14 @@ enum StatusSeparator: String, CaseIterable {
     }
 }
 
-struct PreferencesSnapshot: Equatable {
-    let primaryMetric: PrimaryMetric
-    let refreshInterval: TimeInterval
-    let launchAtLogin: Bool
-    let showsSparkline: Bool
-    let statusDisplayMode: StatusDisplayMode
-    let compactMetrics: [PrimaryMetric]
-    let metricOrder: [PrimaryMetric]
-    let statusSeparator: StatusSeparator
-    let statusDecimalPlaces: Int
-    let language: AppLanguage
-    let alertsEnabled: Bool
-    let cpuAlertEnabled: Bool
-    let memoryAlertEnabled: Bool
-    let thermalAlertEnabled: Bool
-    let batteryLevelAlertEnabled: Bool
-    let batteryTemperatureAlertEnabled: Bool
-    let diskFreeAlertEnabled: Bool
-    let cpuAlertThreshold: Double
-    let memoryAlertThreshold: Double
-    let batteryLevelAlertThreshold: Double
-    let batteryTemperatureAlertThreshold: Double
-    let diskFreeAlertThreshold: Double
-    let alertSustainDuration: TimeInterval
-
-    init(
-        primaryMetric: PrimaryMetric,
-        refreshInterval: TimeInterval,
-        launchAtLogin: Bool,
-        showsSparkline: Bool,
-        statusDisplayMode: StatusDisplayMode = .single,
-        compactMetrics: [PrimaryMetric] = [.cpu, .battery],
-        metricOrder: [PrimaryMetric] = PrimaryMetric.allCases,
-        statusSeparator: StatusSeparator = .dot,
-        statusDecimalPlaces: Int = 0,
-        language: AppLanguage = .system,
-        alertsEnabled: Bool = false,
-        cpuAlertEnabled: Bool = true,
-        memoryAlertEnabled: Bool = true,
-        thermalAlertEnabled: Bool = true,
-        batteryLevelAlertEnabled: Bool = false,
-        batteryTemperatureAlertEnabled: Bool = false,
-        diskFreeAlertEnabled: Bool = false,
-        cpuAlertThreshold: Double = 90,
-        memoryAlertThreshold: Double = 90,
-        batteryLevelAlertThreshold: Double = 20,
-        batteryTemperatureAlertThreshold: Double = 45,
-        diskFreeAlertThreshold: Double = 10,
-        alertSustainDuration: TimeInterval = 30
-    ) {
-        self.primaryMetric = primaryMetric
-        self.refreshInterval = refreshInterval
-        self.launchAtLogin = launchAtLogin
-        self.showsSparkline = showsSparkline
-        self.statusDisplayMode = statusDisplayMode
-        self.compactMetrics = Self.normalizedCompactMetrics(compactMetrics)
-        self.metricOrder = Self.normalizedMetricOrder(metricOrder)
-        self.statusSeparator = statusSeparator
-        self.statusDecimalPlaces = statusDecimalPlaces
-        self.language = language
-        self.alertsEnabled = alertsEnabled
-        self.cpuAlertEnabled = cpuAlertEnabled
-        self.memoryAlertEnabled = memoryAlertEnabled
-        self.thermalAlertEnabled = thermalAlertEnabled
-        self.batteryLevelAlertEnabled = batteryLevelAlertEnabled
-        self.batteryTemperatureAlertEnabled = batteryTemperatureAlertEnabled
-        self.diskFreeAlertEnabled = diskFreeAlertEnabled
-        self.cpuAlertThreshold = cpuAlertThreshold
-        self.memoryAlertThreshold = memoryAlertThreshold
-        self.batteryLevelAlertThreshold = batteryLevelAlertThreshold
-        self.batteryTemperatureAlertThreshold = batteryTemperatureAlertThreshold
-        self.diskFreeAlertThreshold = diskFreeAlertThreshold
-        self.alertSustainDuration = alertSustainDuration
-    }
+struct DisplaySettings: Equatable {
+    var primaryMetric: PrimaryMetric = .cpu
+    var statusDisplayMode: StatusDisplayMode = .single
+    var compactMetrics: [PrimaryMetric] = [.cpu, .battery]
+    var metricOrder: [PrimaryMetric] = PrimaryMetric.allCases
+    var statusSeparator: StatusSeparator = .dot
+    var statusDecimalPlaces = 0
+    var language: AppLanguage = .system
 
     var displayedMetrics: [PrimaryMetric] {
         guard statusDisplayMode == .compact else { return [primaryMetric] }
@@ -108,26 +42,75 @@ struct PreferencesSnapshot: Equatable {
         return metricOrder.filter(selected.contains)
     }
 
-    private static func normalizedCompactMetrics(
-        _ metrics: [PrimaryMetric]
-    ) -> [PrimaryMetric] {
-        let ordered = orderedUnique(metrics)
-        return ordered.isEmpty ? [.cpu, .battery] : ordered
+    var isValid: Bool {
+        !compactMetrics.isEmpty
+            && Set(compactMetrics).count == compactMetrics.count
+            && Set(compactMetrics).isSubset(of: Set(PrimaryMetric.allCases))
+            && metricOrder.count == PrimaryMetric.allCases.count
+            && Set(metricOrder) == Set(PrimaryMetric.allCases)
+            && AppPreferences.allowedStatusDecimalPlaces.contains(statusDecimalPlaces)
+    }
+}
+
+struct SamplingSettings: Equatable {
+    var refreshInterval: TimeInterval = 1
+    var showsSparkline = true
+
+    var isValid: Bool {
+        AppPreferences.allowedRefreshIntervals.contains(refreshInterval)
+    }
+}
+
+struct AlertThresholds: Equatable {
+    var cpu = 90.0
+    var memory = 90.0
+    var batteryLevel = 20.0
+    var batteryTemperature = 45.0
+    var diskFree = 10.0
+}
+
+struct AlertSettings: Equatable {
+    var enabled = false
+    var enabledKinds: Set<MetricAlertKind> = [.cpu, .memory, .thermal]
+    var thresholds = AlertThresholds()
+    var sustainDuration: TimeInterval = 30
+
+    func isEnabled(_ kind: MetricAlertKind) -> Bool {
+        enabledKinds.contains(kind)
     }
 
-    private static func normalizedMetricOrder(
-        _ metrics: [PrimaryMetric]
-    ) -> [PrimaryMetric] {
-        let ordered = orderedUnique(metrics)
-        return ordered + PrimaryMetric.allCases.filter { !ordered.contains($0) }
+    var isValid: Bool {
+        enabledKinds.isSubset(of: Set(MetricAlertKind.allCases))
+            && AppPreferences.allowedAlertThresholds.contains(thresholds.cpu)
+            && AppPreferences.allowedAlertThresholds.contains(thresholds.memory)
+            && AppPreferences.allowedBatteryLevelThresholds.contains(
+                thresholds.batteryLevel
+            )
+            && AppPreferences.allowedBatteryTemperatureThresholds.contains(
+                thresholds.batteryTemperature
+            )
+            && AppPreferences.allowedDiskFreeThresholds.contains(
+                thresholds.diskFree
+            )
+            && AppPreferences.allowedAlertDurations.contains(sustainDuration)
+    }
+}
+
+struct SystemSettings: Equatable {
+    var launchAtLogin = false
+}
+
+struct PreferencesSnapshot: Equatable {
+    var display = DisplaySettings()
+    var sampling = SamplingSettings()
+    var alerts = AlertSettings()
+    var system = SystemSettings()
+
+    var displayedMetrics: [PrimaryMetric] {
+        display.displayedMetrics
     }
 
-    private static func orderedUnique(
-        _ metrics: [PrimaryMetric]
-    ) -> [PrimaryMetric] {
-        var seen = Set<PrimaryMetric>()
-        return metrics.filter { seen.insert($0).inserted }
-    }
+    static let standard = PreferencesSnapshot()
 }
 
 final class AppPreferences {
@@ -139,413 +122,430 @@ final class AppPreferences {
     static let allowedAlertDurations: [TimeInterval] = [30, 60, 120]
     static let allowedStatusDecimalPlaces = [0, 1]
 
-    private enum Key {
-        static let primaryMetric = "primaryMetric"
-        static let refreshInterval = "refreshInterval"
-        static let launchAtLogin = "launchAtLogin"
-        static let showsSparkline = "showsSparkline"
-        static let statusDisplayMode = "statusDisplayMode"
-        static let compactMetrics = "compactMetrics"
-        static let metricOrder = "metricOrder"
-        static let statusSeparator = "statusSeparator"
-        static let statusDecimalPlaces = "statusDecimalPlaces"
-        static let language = "language"
-        static let alertsEnabled = "alertsEnabled"
-        static let cpuAlertEnabled = "cpuAlertEnabled"
-        static let memoryAlertEnabled = "memoryAlertEnabled"
-        static let thermalAlertEnabled = "thermalAlertEnabled"
-        static let batteryLevelAlertEnabled = "batteryLevelAlertEnabled"
-        static let batteryTemperatureAlertEnabled = "batteryTemperatureAlertEnabled"
-        static let diskFreeAlertEnabled = "diskFreeAlertEnabled"
-        static let cpuAlertThreshold = "cpuAlertThreshold"
-        static let memoryAlertThreshold = "memoryAlertThreshold"
-        static let batteryLevelAlertThreshold = "batteryLevelAlertThreshold"
-        static let batteryTemperatureAlertThreshold = "batteryTemperatureAlertThreshold"
-        static let diskFreeAlertThreshold = "diskFreeAlertThreshold"
-        static let alertSustainDuration = "alertSustainDuration"
-    }
-
     private let defaults: UserDefaults
     var onChange: ((PreferencesSnapshot) -> Void)?
 
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        repairStoredValues()
-        defaults.register(defaults: [
-            Key.primaryMetric: PrimaryMetric.cpu.rawValue,
-            Key.refreshInterval: 1.0,
-            Key.launchAtLogin: false,
-            Key.showsSparkline: true,
-            Key.statusDisplayMode: StatusDisplayMode.single.rawValue,
-            Key.compactMetrics: [PrimaryMetric.cpu.rawValue, PrimaryMetric.battery.rawValue],
-            Key.metricOrder: PrimaryMetric.allCases.map(\.rawValue),
-            Key.statusSeparator: StatusSeparator.dot.rawValue,
-            Key.statusDecimalPlaces: 0,
-            Key.language: AppLanguage.system.rawValue,
-            Key.alertsEnabled: false,
-            Key.cpuAlertEnabled: true,
-            Key.memoryAlertEnabled: true,
-            Key.thermalAlertEnabled: true,
-            Key.batteryLevelAlertEnabled: false,
-            Key.batteryTemperatureAlertEnabled: false,
-            Key.diskFreeAlertEnabled: false,
-            Key.cpuAlertThreshold: 90.0,
-            Key.memoryAlertThreshold: 90.0,
-            Key.batteryLevelAlertThreshold: 20.0,
-            Key.batteryTemperatureAlertThreshold: 45.0,
-            Key.diskFreeAlertThreshold: 10.0,
-            Key.alertSustainDuration: 30.0
-        ])
+    init(defaults: UserDefaults? = nil) {
+        let store = defaults ?? Self.defaultStore()
+        self.defaults = store
+        SettingsSchema.repairStoredValues(in: store)
+        store.register(defaults: SettingsSchema.registeredDefaults)
+        if let language = Self.uiTestLanguage {
+            SettingsSchema.Display.language.write(language, to: store)
+        }
     }
 
     var snapshot: PreferencesSnapshot {
         if ProcessInfo.processInfo.environment["METRILENS_PERF_MODE"] == "1" {
-            return PreferencesSnapshot(
-                primaryMetric: .cpu,
-                refreshInterval: 1,
-                launchAtLogin: false,
-                showsSparkline: true,
-                statusDisplayMode: .single,
-                compactMetrics: [.cpu, .battery],
-                language: .system,
-                alertsEnabled: false
-            )
+            return .standard
         }
-        let metric = PrimaryMetric(
-            rawValue: defaults.string(forKey: Key.primaryMetric) ?? ""
-        ) ?? .cpu
-        let interval = Self.allowedRefreshIntervals.contains(
-            defaults.double(forKey: Key.refreshInterval)
-        )
-            ? defaults.double(forKey: Key.refreshInterval)
-            : 1.0
-        let compactMetrics = (defaults.stringArray(forKey: Key.compactMetrics) ?? [])
-            .compactMap(PrimaryMetric.init(rawValue:))
-        let metricOrder = (defaults.stringArray(forKey: Key.metricOrder) ?? [])
-            .compactMap(PrimaryMetric.init(rawValue:))
         return PreferencesSnapshot(
-            primaryMetric: metric,
-            refreshInterval: interval,
-            launchAtLogin: defaults.bool(forKey: Key.launchAtLogin),
-            showsSparkline: defaults.bool(forKey: Key.showsSparkline),
-            statusDisplayMode: StatusDisplayMode(
-                rawValue: defaults.string(forKey: Key.statusDisplayMode) ?? ""
-            ) ?? .single,
-            compactMetrics: compactMetrics,
-            metricOrder: metricOrder,
-            statusSeparator: StatusSeparator(
-                rawValue: defaults.string(forKey: Key.statusSeparator) ?? ""
-            ) ?? .dot,
-            statusDecimalPlaces: defaults.integer(forKey: Key.statusDecimalPlaces),
-            language: AppLanguage(
-                rawValue: defaults.string(forKey: Key.language) ?? ""
-            ) ?? .system,
-            alertsEnabled: defaults.bool(forKey: Key.alertsEnabled),
-            cpuAlertEnabled: defaults.bool(forKey: Key.cpuAlertEnabled),
-            memoryAlertEnabled: defaults.bool(forKey: Key.memoryAlertEnabled),
-            thermalAlertEnabled: defaults.bool(forKey: Key.thermalAlertEnabled),
-            batteryLevelAlertEnabled: defaults.bool(forKey: Key.batteryLevelAlertEnabled),
-            batteryTemperatureAlertEnabled:
-                defaults.bool(forKey: Key.batteryTemperatureAlertEnabled),
-            diskFreeAlertEnabled: defaults.bool(forKey: Key.diskFreeAlertEnabled),
-            cpuAlertThreshold: defaults.double(forKey: Key.cpuAlertThreshold),
-            memoryAlertThreshold: defaults.double(forKey: Key.memoryAlertThreshold),
-            batteryLevelAlertThreshold:
-                defaults.double(forKey: Key.batteryLevelAlertThreshold),
-            batteryTemperatureAlertThreshold:
-                defaults.double(forKey: Key.batteryTemperatureAlertThreshold),
-            diskFreeAlertThreshold: defaults.double(forKey: Key.diskFreeAlertThreshold),
-            alertSustainDuration: defaults.double(forKey: Key.alertSustainDuration)
+            display: DisplaySettings(
+                primaryMetric: SettingsSchema.Display.primaryMetric.read(from: defaults),
+                statusDisplayMode: SettingsSchema.Display.mode.read(from: defaults),
+                compactMetrics: SettingsSchema.Display.compactMetrics.read(from: defaults),
+                metricOrder: SettingsSchema.Display.metricOrder.read(from: defaults),
+                statusSeparator: SettingsSchema.Display.separator.read(from: defaults),
+                statusDecimalPlaces: SettingsSchema.Display.decimalPlaces.read(from: defaults),
+                language: SettingsSchema.Display.language.read(from: defaults)
+            ),
+            sampling: SamplingSettings(
+                refreshInterval: SettingsSchema.Sampling.refreshInterval.read(from: defaults),
+                showsSparkline: SettingsSchema.Sampling.showsSparkline.read(from: defaults)
+            ),
+            alerts: AlertSettings(
+                enabled: SettingsSchema.Alerts.enabled.read(from: defaults),
+                enabledKinds: Set(MetricAlertKind.allCases.filter {
+                    SettingsSchema.Alerts.enabledSetting(for: $0).read(from: defaults)
+                }),
+                thresholds: AlertThresholds(
+                    cpu: SettingsSchema.Alerts.cpuThreshold.read(from: defaults),
+                    memory: SettingsSchema.Alerts.memoryThreshold.read(from: defaults),
+                    batteryLevel: SettingsSchema.Alerts.batteryLevelThreshold.read(from: defaults),
+                    batteryTemperature: SettingsSchema.Alerts.batteryTemperatureThreshold.read(from: defaults),
+                    diskFree: SettingsSchema.Alerts.diskFreeThreshold.read(from: defaults)
+                ),
+                sustainDuration: SettingsSchema.Alerts.sustainDuration.read(from: defaults)
+            ),
+            system: SystemSettings(
+                launchAtLogin: SettingsSchema.System.launchAtLogin.read(from: defaults)
+            )
         )
     }
 
-    func setPrimaryMetric(_ metric: PrimaryMetric) {
-        defaults.set(metric.rawValue, forKey: Key.primaryMetric)
+    func updateDisplay(_ update: (inout DisplaySettings) -> Void) {
+        var value = snapshot.display
+        update(&value)
+        guard value.isValid else { return }
+        SettingsSchema.Display.write(value, to: defaults)
         notify()
     }
 
-    func setRefreshInterval(_ interval: TimeInterval) {
-        guard Self.allowedRefreshIntervals.contains(interval) else { return }
-        defaults.set(interval, forKey: Key.refreshInterval)
+    func updateSampling(_ update: (inout SamplingSettings) -> Void) {
+        var value = snapshot.sampling
+        update(&value)
+        guard value.isValid else { return }
+        SettingsSchema.Sampling.write(value, to: defaults)
         notify()
     }
 
-    func setLaunchAtLogin(_ enabled: Bool) {
-        defaults.set(enabled, forKey: Key.launchAtLogin)
+    func updateAlerts(_ update: (inout AlertSettings) -> Void) {
+        var value = snapshot.alerts
+        update(&value)
+        guard value.isValid else { return }
+        SettingsSchema.Alerts.write(value, to: defaults)
         notify()
     }
 
-    func setShowsSparkline(_ enabled: Bool) {
-        defaults.set(enabled, forKey: Key.showsSparkline)
-        notify()
-    }
-
-    func setStatusDisplayMode(_ mode: StatusDisplayMode) {
-        defaults.set(mode.rawValue, forKey: Key.statusDisplayMode)
-        notify()
-    }
-
-    func setCompactMetrics(_ metrics: [PrimaryMetric]) {
-        var seen = Set<PrimaryMetric>()
-        let normalized = metrics.filter { seen.insert($0).inserted }
-        guard !normalized.isEmpty else { return }
-        defaults.set(normalized.map(\.rawValue), forKey: Key.compactMetrics)
-        notify()
-    }
-
-    func setMetricOrder(_ metrics: [PrimaryMetric]) {
-        guard Set(metrics) == Set(PrimaryMetric.allCases),
-              metrics.count == PrimaryMetric.allCases.count else { return }
-        defaults.set(metrics.map(\.rawValue), forKey: Key.metricOrder)
-        notify()
-    }
-
-    func setStatusSeparator(_ separator: StatusSeparator) {
-        defaults.set(separator.rawValue, forKey: Key.statusSeparator)
-        notify()
-    }
-
-    func setStatusDecimalPlaces(_ places: Int) {
-        guard Self.allowedStatusDecimalPlaces.contains(places) else { return }
-        defaults.set(places, forKey: Key.statusDecimalPlaces)
-        notify()
-    }
-
-    func setLanguage(_ language: AppLanguage) {
-        defaults.set(language.rawValue, forKey: Key.language)
-        notify()
-    }
-
-    func setAlertsEnabled(_ enabled: Bool) {
-        defaults.set(enabled, forKey: Key.alertsEnabled)
-        notify()
-    }
-
-    func setAlertEnabled(_ enabled: Bool, kind: MetricAlertKind) {
-        let key: String
-        switch kind {
-        case .cpu: key = Key.cpuAlertEnabled
-        case .memory: key = Key.memoryAlertEnabled
-        case .thermal: key = Key.thermalAlertEnabled
-        case .batteryLevel: key = Key.batteryLevelAlertEnabled
-        case .batteryTemperature: key = Key.batteryTemperatureAlertEnabled
-        case .diskFree: key = Key.diskFreeAlertEnabled
-        }
-        defaults.set(enabled, forKey: key)
-        notify()
-    }
-
-    func setCPUAlertThreshold(_ threshold: Double) {
-        guard Self.allowedAlertThresholds.contains(threshold) else { return }
-        defaults.set(threshold, forKey: Key.cpuAlertThreshold)
-        notify()
-    }
-
-    func setMemoryAlertThreshold(_ threshold: Double) {
-        guard Self.allowedAlertThresholds.contains(threshold) else { return }
-        defaults.set(threshold, forKey: Key.memoryAlertThreshold)
-        notify()
-    }
-
-    func setBatteryLevelAlertThreshold(_ threshold: Double) {
-        guard Self.allowedBatteryLevelThresholds.contains(threshold) else { return }
-        defaults.set(threshold, forKey: Key.batteryLevelAlertThreshold)
-        notify()
-    }
-
-    func setBatteryTemperatureAlertThreshold(_ threshold: Double) {
-        guard Self.allowedBatteryTemperatureThresholds.contains(threshold) else { return }
-        defaults.set(threshold, forKey: Key.batteryTemperatureAlertThreshold)
-        notify()
-    }
-
-    func setDiskFreeAlertThreshold(_ threshold: Double) {
-        guard Self.allowedDiskFreeThresholds.contains(threshold) else { return }
-        defaults.set(threshold, forKey: Key.diskFreeAlertThreshold)
-        notify()
-    }
-
-    func setAlertSustainDuration(_ duration: TimeInterval) {
-        guard Self.allowedAlertDurations.contains(duration) else { return }
-        defaults.set(duration, forKey: Key.alertSustainDuration)
+    func updateSystem(_ update: (inout SystemSettings) -> Void) {
+        var value = snapshot.system
+        update(&value)
+        SettingsSchema.System.write(value, to: defaults)
         notify()
     }
 
     func resetToDefaults() {
-        [
-            Key.primaryMetric,
-            Key.refreshInterval,
-            Key.launchAtLogin,
-            Key.showsSparkline,
-            Key.statusDisplayMode,
-            Key.compactMetrics,
-            Key.metricOrder,
-            Key.statusSeparator,
-            Key.statusDecimalPlaces,
-            Key.language,
-            Key.alertsEnabled,
-            Key.cpuAlertEnabled,
-            Key.memoryAlertEnabled,
-            Key.thermalAlertEnabled,
-            Key.batteryLevelAlertEnabled,
-            Key.batteryTemperatureAlertEnabled,
-            Key.diskFreeAlertEnabled,
-            Key.cpuAlertThreshold,
-            Key.memoryAlertThreshold,
-            Key.batteryLevelAlertThreshold,
-            Key.batteryTemperatureAlertThreshold,
-            Key.diskFreeAlertThreshold,
-            Key.alertSustainDuration
-        ].forEach(defaults.removeObject(forKey:))
+        SettingsSchema.reset(in: defaults)
         notify()
-    }
-
-    private func repairStoredValues() {
-        if let rawMetric = defaults.object(forKey: Key.primaryMetric),
-           (!(rawMetric is String)
-                || PrimaryMetric(rawValue: rawMetric as? String ?? "") == nil) {
-            defaults.removeObject(forKey: Key.primaryMetric)
-        }
-
-        if let rawInterval = defaults.object(forKey: Key.refreshInterval) {
-            let number = rawInterval as? NSNumber
-            let isBoolean = number.map {
-                CFGetTypeID($0) == CFBooleanGetTypeID()
-            } ?? false
-            let interval = number?.doubleValue
-            if isBoolean
-                || interval?.isFinite != true
-                || !Self.allowedRefreshIntervals.contains(interval ?? .nan) {
-                defaults.removeObject(forKey: Key.refreshInterval)
-            }
-        }
-
-        repairEnum(
-            key: Key.statusDisplayMode,
-            isValid: { StatusDisplayMode(rawValue: $0) != nil }
-        )
-        repairEnum(
-            key: Key.language,
-            isValid: { AppLanguage(rawValue: $0) != nil }
-        )
-        repairEnum(
-            key: Key.statusSeparator,
-            isValid: { StatusSeparator(rawValue: $0) != nil }
-        )
-        repairCompactMetrics()
-        repairMetricOrder()
-        repairInteger(
-            key: Key.statusDecimalPlaces,
-            allowed: Self.allowedStatusDecimalPlaces
-        )
-        repairNumber(
-            key: Key.cpuAlertThreshold,
-            allowed: Self.allowedAlertThresholds
-        )
-        repairNumber(
-            key: Key.memoryAlertThreshold,
-            allowed: Self.allowedAlertThresholds
-        )
-        repairNumber(
-            key: Key.alertSustainDuration,
-            allowed: Self.allowedAlertDurations
-        )
-        repairNumber(
-            key: Key.batteryLevelAlertThreshold,
-            allowed: Self.allowedBatteryLevelThresholds
-        )
-        repairNumber(
-            key: Key.batteryTemperatureAlertThreshold,
-            allowed: Self.allowedBatteryTemperatureThresholds
-        )
-        repairNumber(
-            key: Key.diskFreeAlertThreshold,
-            allowed: Self.allowedDiskFreeThresholds
-        )
-
-        for key in [
-            Key.launchAtLogin,
-            Key.showsSparkline,
-            Key.alertsEnabled,
-            Key.cpuAlertEnabled,
-            Key.memoryAlertEnabled,
-            Key.thermalAlertEnabled,
-            Key.batteryLevelAlertEnabled,
-            Key.batteryTemperatureAlertEnabled,
-            Key.diskFreeAlertEnabled
-        ] {
-            guard let value = defaults.object(forKey: key) else { continue }
-            guard let number = value as? NSNumber,
-                  CFGetTypeID(number) == CFBooleanGetTypeID() else {
-                defaults.removeObject(forKey: key)
-                continue
-            }
-        }
-    }
-
-    private func repairEnum(key: String, isValid: (String) -> Bool) {
-        guard let value = defaults.object(forKey: key) else { return }
-        guard let rawValue = value as? String, isValid(rawValue) else {
-            defaults.removeObject(forKey: key)
-            return
-        }
-    }
-
-    private func repairCompactMetrics() {
-        guard let value = defaults.object(forKey: Key.compactMetrics) else { return }
-        guard let rawValues = value as? [String],
-              !rawValues.isEmpty,
-              rawValues.count <= PrimaryMetric.allCases.count else {
-            defaults.removeObject(forKey: Key.compactMetrics)
-            return
-        }
-        let metrics = rawValues.compactMap(PrimaryMetric.init(rawValue:))
-        guard metrics.count == rawValues.count,
-              Set(metrics).count == metrics.count else {
-            defaults.removeObject(forKey: Key.compactMetrics)
-            return
-        }
-    }
-
-    private func repairMetricOrder() {
-        guard let value = defaults.object(forKey: Key.metricOrder) else { return }
-        guard let rawValues = value as? [String],
-              rawValues.count == PrimaryMetric.allCases.count else {
-            defaults.removeObject(forKey: Key.metricOrder)
-            return
-        }
-        let metrics = rawValues.compactMap(PrimaryMetric.init(rawValue:))
-        guard metrics.count == rawValues.count,
-              Set(metrics) == Set(PrimaryMetric.allCases) else {
-            defaults.removeObject(forKey: Key.metricOrder)
-            return
-        }
-    }
-
-    private func repairNumber(key: String, allowed: [Double]) {
-        guard let rawValue = defaults.object(forKey: key) else { return }
-        guard let number = rawValue as? NSNumber,
-              CFGetTypeID(number) != CFBooleanGetTypeID(),
-              number.doubleValue.isFinite,
-              allowed.contains(number.doubleValue) else {
-            defaults.removeObject(forKey: key)
-            return
-        }
-    }
-
-    private func repairInteger(key: String, allowed: [Int]) {
-        guard let rawValue = defaults.object(forKey: key) else { return }
-        guard let number = rawValue as? NSNumber,
-              CFGetTypeID(number) != CFBooleanGetTypeID(),
-              number.doubleValue.isFinite,
-              number.doubleValue == Double(number.intValue),
-              allowed.contains(number.intValue) else {
-            defaults.removeObject(forKey: key)
-            return
-        }
     }
 
     private func notify() {
         onChange?(snapshot)
+    }
+
+    private static func defaultStore() -> UserDefaults {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["METRILENS_UI_TESTING"] == "1" else {
+            return .standard
+        }
+        let suiteName = "com.xfzhou.Metrilens.UITests"
+        let store = UserDefaults(suiteName: suiteName)!
+        if environment["METRILENS_UI_TEST_RESET"] == "1" {
+            store.removePersistentDomain(forName: suiteName)
+        }
+        return store
+    }
+
+    private static var uiTestLanguage: AppLanguage? {
+        guard ProcessInfo.processInfo.environment["METRILENS_UI_TESTING"] == "1",
+              let rawValue = ProcessInfo.processInfo.environment[
+                "METRILENS_UI_TEST_LANGUAGE"
+              ] else {
+            return nil
+        }
+        return AppLanguage(rawValue: rawValue)
+    }
+}
+
+private struct StoredSetting<Value> {
+    let key: String
+    let defaultValue: Value
+    let decode: (Any) -> Value?
+    let encode: (Value) -> Any
+
+    func read(from defaults: UserDefaults) -> Value {
+        guard let rawValue = defaults.object(forKey: key) else {
+            return defaultValue
+        }
+        return decode(rawValue) ?? defaultValue
+    }
+
+    func write(_ value: Value, to defaults: UserDefaults) {
+        defaults.set(encode(value), forKey: key)
+    }
+
+    var definition: StoredSettingDefinition {
+        StoredSettingDefinition(
+            key: key,
+            defaultValue: encode(defaultValue),
+            isValid: { decode($0) != nil }
+        )
+    }
+}
+
+private struct StoredSettingDefinition {
+    let key: String
+    let defaultValue: Any
+    let isValid: (Any) -> Bool
+}
+
+private enum SettingsSchema {
+    enum Display {
+        static let primaryMetric = enumSetting("primaryMetric", default: PrimaryMetric.cpu)
+        static let mode = enumSetting("statusDisplayMode", default: StatusDisplayMode.single)
+        static let compactMetrics = metricListSetting(
+            "compactMetrics",
+            default: [.cpu, .battery]
+        ) { metrics in
+            !metrics.isEmpty && Set(metrics).count == metrics.count
+        }
+        static let metricOrder = metricListSetting(
+            "metricOrder",
+            default: PrimaryMetric.allCases
+        ) { metrics in
+            metrics.count == PrimaryMetric.allCases.count
+                && Set(metrics) == Set(PrimaryMetric.allCases)
+        }
+        static let separator = enumSetting("statusSeparator", default: StatusSeparator.dot)
+        static let decimalPlaces = integerSetting(
+            "statusDecimalPlaces",
+            default: 0,
+            allowed: AppPreferences.allowedStatusDecimalPlaces
+        )
+        static let language = enumSetting("language", default: AppLanguage.system)
+
+        static let definitions = [
+            primaryMetric.definition,
+            mode.definition,
+            compactMetrics.definition,
+            metricOrder.definition,
+            separator.definition,
+            decimalPlaces.definition,
+            language.definition
+        ]
+
+        static func write(_ value: DisplaySettings, to defaults: UserDefaults) {
+            primaryMetric.write(value.primaryMetric, to: defaults)
+            mode.write(value.statusDisplayMode, to: defaults)
+            compactMetrics.write(value.compactMetrics, to: defaults)
+            metricOrder.write(value.metricOrder, to: defaults)
+            separator.write(value.statusSeparator, to: defaults)
+            decimalPlaces.write(value.statusDecimalPlaces, to: defaults)
+            language.write(value.language, to: defaults)
+        }
+    }
+
+    enum Sampling {
+        static let refreshInterval = doubleSetting(
+            "refreshInterval",
+            default: 1,
+            allowed: AppPreferences.allowedRefreshIntervals
+        )
+        static let showsSparkline = booleanSetting("showsSparkline", default: true)
+        static let definitions = [
+            refreshInterval.definition,
+            showsSparkline.definition
+        ]
+
+        static func write(_ value: SamplingSettings, to defaults: UserDefaults) {
+            refreshInterval.write(value.refreshInterval, to: defaults)
+            showsSparkline.write(value.showsSparkline, to: defaults)
+        }
+    }
+
+    enum Alerts {
+        static let enabled = booleanSetting("alertsEnabled", default: false)
+        static let cpuEnabled = booleanSetting("cpuAlertEnabled", default: true)
+        static let memoryEnabled = booleanSetting("memoryAlertEnabled", default: true)
+        static let thermalEnabled = booleanSetting("thermalAlertEnabled", default: true)
+        static let batteryLevelEnabled = booleanSetting(
+            "batteryLevelAlertEnabled",
+            default: false
+        )
+        static let batteryTemperatureEnabled = booleanSetting(
+            "batteryTemperatureAlertEnabled",
+            default: false
+        )
+        static let diskFreeEnabled = booleanSetting("diskFreeAlertEnabled", default: false)
+        static let cpuThreshold = doubleSetting(
+            "cpuAlertThreshold",
+            default: 90,
+            allowed: AppPreferences.allowedAlertThresholds
+        )
+        static let memoryThreshold = doubleSetting(
+            "memoryAlertThreshold",
+            default: 90,
+            allowed: AppPreferences.allowedAlertThresholds
+        )
+        static let batteryLevelThreshold = doubleSetting(
+            "batteryLevelAlertThreshold",
+            default: 20,
+            allowed: AppPreferences.allowedBatteryLevelThresholds
+        )
+        static let batteryTemperatureThreshold = doubleSetting(
+            "batteryTemperatureAlertThreshold",
+            default: 45,
+            allowed: AppPreferences.allowedBatteryTemperatureThresholds
+        )
+        static let diskFreeThreshold = doubleSetting(
+            "diskFreeAlertThreshold",
+            default: 10,
+            allowed: AppPreferences.allowedDiskFreeThresholds
+        )
+        static let sustainDuration = doubleSetting(
+            "alertSustainDuration",
+            default: 30,
+            allowed: AppPreferences.allowedAlertDurations
+        )
+
+        static let definitions = [
+            enabled.definition,
+            cpuEnabled.definition,
+            memoryEnabled.definition,
+            thermalEnabled.definition,
+            batteryLevelEnabled.definition,
+            batteryTemperatureEnabled.definition,
+            diskFreeEnabled.definition,
+            cpuThreshold.definition,
+            memoryThreshold.definition,
+            batteryLevelThreshold.definition,
+            batteryTemperatureThreshold.definition,
+            diskFreeThreshold.definition,
+            sustainDuration.definition
+        ]
+
+        static func enabledSetting(for kind: MetricAlertKind) -> StoredSetting<Bool> {
+            switch kind {
+            case .cpu: return cpuEnabled
+            case .memory: return memoryEnabled
+            case .thermal: return thermalEnabled
+            case .batteryLevel: return batteryLevelEnabled
+            case .batteryTemperature: return batteryTemperatureEnabled
+            case .diskFree: return diskFreeEnabled
+            }
+        }
+
+        static func write(_ value: AlertSettings, to defaults: UserDefaults) {
+            enabled.write(value.enabled, to: defaults)
+            for kind in MetricAlertKind.allCases {
+                enabledSetting(for: kind).write(value.enabledKinds.contains(kind), to: defaults)
+            }
+            cpuThreshold.write(value.thresholds.cpu, to: defaults)
+            memoryThreshold.write(value.thresholds.memory, to: defaults)
+            batteryLevelThreshold.write(value.thresholds.batteryLevel, to: defaults)
+            batteryTemperatureThreshold.write(
+                value.thresholds.batteryTemperature,
+                to: defaults
+            )
+            diskFreeThreshold.write(value.thresholds.diskFree, to: defaults)
+            sustainDuration.write(value.sustainDuration, to: defaults)
+        }
+    }
+
+    enum System {
+        static let launchAtLogin = booleanSetting("launchAtLogin", default: false)
+        static let definitions = [launchAtLogin.definition]
+
+        static func write(_ value: SystemSettings, to defaults: UserDefaults) {
+            launchAtLogin.write(value.launchAtLogin, to: defaults)
+        }
+    }
+
+    static let definitions =
+        Display.definitions + Sampling.definitions + Alerts.definitions + System.definitions
+
+    static var registeredDefaults: [String: Any] {
+        Dictionary(uniqueKeysWithValues: definitions.map { ($0.key, $0.defaultValue) })
+    }
+
+    static func repairStoredValues(in defaults: UserDefaults) {
+        for definition in definitions {
+            guard let value = defaults.object(forKey: definition.key) else { continue }
+            if !definition.isValid(value) {
+                defaults.removeObject(forKey: definition.key)
+            }
+        }
+    }
+
+    static func reset(in defaults: UserDefaults) {
+        for definition in definitions {
+            defaults.removeObject(forKey: definition.key)
+        }
+    }
+
+    private static func booleanSetting(
+        _ key: String,
+        default defaultValue: Bool
+    ) -> StoredSetting<Bool> {
+        StoredSetting(
+            key: key,
+            defaultValue: defaultValue,
+            decode: { rawValue in
+                guard let number = rawValue as? NSNumber,
+                      CFGetTypeID(number) == CFBooleanGetTypeID() else {
+                    return nil
+                }
+                return number.boolValue
+            },
+            encode: { $0 }
+        )
+    }
+
+    private static func doubleSetting(
+        _ key: String,
+        default defaultValue: Double,
+        allowed: [Double]
+    ) -> StoredSetting<Double> {
+        StoredSetting(
+            key: key,
+            defaultValue: defaultValue,
+            decode: { rawValue in
+                guard let number = rawValue as? NSNumber,
+                      CFGetTypeID(number) != CFBooleanGetTypeID(),
+                      number.doubleValue.isFinite,
+                      allowed.contains(number.doubleValue) else {
+                    return nil
+                }
+                return number.doubleValue
+            },
+            encode: { $0 }
+        )
+    }
+
+    private static func integerSetting(
+        _ key: String,
+        default defaultValue: Int,
+        allowed: [Int]
+    ) -> StoredSetting<Int> {
+        StoredSetting(
+            key: key,
+            defaultValue: defaultValue,
+            decode: { rawValue in
+                guard let number = rawValue as? NSNumber,
+                      CFGetTypeID(number) != CFBooleanGetTypeID(),
+                      number.doubleValue.isFinite,
+                      number.doubleValue == Double(number.intValue),
+                      allowed.contains(number.intValue) else {
+                    return nil
+                }
+                return number.intValue
+            },
+            encode: { $0 }
+        )
+    }
+
+    private static func enumSetting<Value>(
+        _ key: String,
+        default defaultValue: Value
+    ) -> StoredSetting<Value> where Value: RawRepresentable, Value.RawValue == String {
+        StoredSetting(
+            key: key,
+            defaultValue: defaultValue,
+            decode: { rawValue in
+                guard let rawValue = rawValue as? String else { return nil }
+                return Value(rawValue: rawValue)
+            },
+            encode: { $0.rawValue }
+        )
+    }
+
+    private static func metricListSetting(
+        _ key: String,
+        default defaultValue: [PrimaryMetric],
+        validate: @escaping ([PrimaryMetric]) -> Bool
+    ) -> StoredSetting<[PrimaryMetric]> {
+        StoredSetting(
+            key: key,
+            defaultValue: defaultValue,
+            decode: { rawValue in
+                guard let rawValues = rawValue as? [String] else { return nil }
+                let metrics = rawValues.compactMap(PrimaryMetric.init(rawValue:))
+                guard metrics.count == rawValues.count, validate(metrics) else {
+                    return nil
+                }
+                return metrics
+            },
+            encode: { $0.map(\.rawValue) }
+        )
     }
 }

@@ -1,17 +1,17 @@
 import Foundation
 
 struct AppBuildInformation: Equatable {
-    let version: String
-    let build: String
+    let version: String?
+    let build: String?
 
     static func current(bundle: Bundle = .main) -> AppBuildInformation {
         AppBuildInformation(
             version: bundle.object(
                 forInfoDictionaryKey: "CFBundleShortVersionString"
-            ) as? String ?? "未知",
+            ) as? String,
             build: bundle.object(
                 forInfoDictionaryKey: "CFBundleVersion"
-            ) as? String ?? "未知"
+            ) as? String
         )
     }
 }
@@ -39,15 +39,7 @@ enum DiagnosticReport {
     static let privacyDisclosure = privacyDisclosure(language: .simplifiedChinese)
 
     static func privacyDisclosure(language: AppLanguage) -> String {
-        language.text(
-            "诊断信息仅包含 App 版本与构建号、macOS 版本、系统架构、低电量模式状态、"
-                + "应用设置、采样状态、指标状态和最近的指标读取错误；"
-                + "不包含用户名、主机名、序列号、文件路径、进程 ID 或网络地址。",
-            "Diagnostics include only the app version and build, macOS version, architecture, "
-                + "Low Power Mode, app settings, sampling state, metric state, and recent metric "
-                + "read errors. They do not include usernames, hostnames, serial numbers, file "
-                + "paths, process IDs, or network addresses."
-        )
+        language.localized("diagnostics.privacyDisclosure")
     }
 
     static func make(
@@ -56,38 +48,38 @@ enum DiagnosticReport {
         preferences: PreferencesSnapshot,
         snapshot: SystemSnapshot
     ) -> String {
-        let language = preferences.language
+        let language = preferences.display.language
         let heatDiagnosis = HeatDiagnosisAnalyzer.evaluate(snapshot)
         return [
-            language.text("Metrilens 诊断信息", "Metrilens Diagnostics"),
-            "app.version=\(build.version)",
-            "app.build=\(build.build)",
+            language.localized("Metrilens Diagnostics"),
+            "app.version=\(build.version ?? "unknown")",
+            "app.build=\(build.build ?? "unknown")",
             "system.os=\(context.operatingSystem)",
             "system.arch=\(context.architecture)",
             "system.low_power=\(yesNo(context.lowPowerModeEnabled))",
-            "settings.primary_metric=\(preferences.primaryMetric.rawValue)",
-            "settings.display_mode=\(preferences.statusDisplayMode.rawValue)",
-            "settings.compact_metrics=\(preferences.compactMetrics.map(\.rawValue).joined(separator: ","))",
-            "settings.metric_order=\(preferences.metricOrder.map(\.rawValue).joined(separator: ","))",
-            "settings.status_separator=\(preferences.statusSeparator.rawValue)",
-            "settings.status_decimals=\(preferences.statusDecimalPlaces)",
-            "settings.refresh_seconds=\(format(preferences.refreshInterval))",
-            "settings.launch_at_login=\(yesNo(preferences.launchAtLogin))",
-            "settings.sparkline=\(yesNo(preferences.showsSparkline))",
-            "settings.language=\(preferences.language.rawValue)",
-            "settings.alerts_enabled=\(yesNo(preferences.alertsEnabled))",
-            "settings.cpu_alert_enabled=\(yesNo(preferences.cpuAlertEnabled))",
-            "settings.memory_alert_enabled=\(yesNo(preferences.memoryAlertEnabled))",
-            "settings.thermal_alert_enabled=\(yesNo(preferences.thermalAlertEnabled))",
-            "settings.battery_level_alert_enabled=\(yesNo(preferences.batteryLevelAlertEnabled))",
-            "settings.battery_temperature_alert_enabled=\(yesNo(preferences.batteryTemperatureAlertEnabled))",
-            "settings.disk_free_alert_enabled=\(yesNo(preferences.diskFreeAlertEnabled))",
-            "settings.cpu_alert_threshold=\(format(preferences.cpuAlertThreshold))%",
-            "settings.memory_alert_threshold=\(format(preferences.memoryAlertThreshold))%",
-            "settings.battery_level_alert_threshold=\(format(preferences.batteryLevelAlertThreshold))%",
-            "settings.battery_temperature_alert_threshold=\(format(preferences.batteryTemperatureAlertThreshold))C",
-            "settings.disk_free_alert_threshold=\(format(preferences.diskFreeAlertThreshold))%",
-            "settings.alert_sustain_seconds=\(format(preferences.alertSustainDuration))",
+            "settings.primary_metric=\(preferences.display.primaryMetric.rawValue)",
+            "settings.display_mode=\(preferences.display.statusDisplayMode.rawValue)",
+            "settings.compact_metrics=\(preferences.display.compactMetrics.map(\.rawValue).joined(separator: ","))",
+            "settings.metric_order=\(preferences.display.metricOrder.map(\.rawValue).joined(separator: ","))",
+            "settings.status_separator=\(preferences.display.statusSeparator.rawValue)",
+            "settings.status_decimals=\(preferences.display.statusDecimalPlaces)",
+            "settings.refresh_seconds=\(format(preferences.sampling.refreshInterval))",
+            "settings.launch_at_login=\(yesNo(preferences.system.launchAtLogin))",
+            "settings.sparkline=\(yesNo(preferences.sampling.showsSparkline))",
+            "settings.language=\(preferences.display.language.rawValue)",
+            "settings.alerts_enabled=\(yesNo(preferences.alerts.enabled))",
+            "settings.cpu_alert_enabled=\(yesNo(preferences.alerts.enabledKinds.contains(.cpu)))",
+            "settings.memory_alert_enabled=\(yesNo(preferences.alerts.enabledKinds.contains(.memory)))",
+            "settings.thermal_alert_enabled=\(yesNo(preferences.alerts.enabledKinds.contains(.thermal)))",
+            "settings.battery_level_alert_enabled=\(yesNo(preferences.alerts.enabledKinds.contains(.batteryLevel)))",
+            "settings.battery_temperature_alert_enabled=\(yesNo(preferences.alerts.enabledKinds.contains(.batteryTemperature)))",
+            "settings.disk_free_alert_enabled=\(yesNo(preferences.alerts.enabledKinds.contains(.diskFree)))",
+            "settings.cpu_alert_threshold=\(format(preferences.alerts.thresholds.cpu))%",
+            "settings.memory_alert_threshold=\(format(preferences.alerts.thresholds.memory))%",
+            "settings.battery_level_alert_threshold=\(format(preferences.alerts.thresholds.batteryLevel))%",
+            "settings.battery_temperature_alert_threshold=\(format(preferences.alerts.thresholds.batteryTemperature))C",
+            "settings.disk_free_alert_threshold=\(format(preferences.alerts.thresholds.diskFree))%",
+            "settings.alert_sustain_seconds=\(format(preferences.alerts.sustainDuration))",
             "sampling.running=\(yesNo(snapshot.samplingRuntime.isRunning))",
             "sampling.sleeping=\(yesNo(snapshot.samplingRuntime.isSleeping))",
             "sampling.popover_visible=\(yesNo(snapshot.samplingRuntime.isPopoverVisible))",

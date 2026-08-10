@@ -25,7 +25,11 @@ jobs:
 
       - name: Run Python tests
         working-directory: scripts
-        run: python3 -m unittest test_measure_lightweight.py test_release_tools.py
+        run: >
+          python3 -m unittest
+          test_measure_lightweight.py
+          test_release_tools.py
+          test_localization_catalog.py
 
       - name: Run Swift tests
         run: >
@@ -40,6 +44,9 @@ jobs:
 
       - name: Run Chinese and English UI tests
         run: ./scripts/test_localizations.sh
+
+      - name: Run end-to-end UI test
+        run: ./scripts/test_ui.sh
 
       - name: Upload test results on failure
         if: failure()

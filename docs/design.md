@@ -1,8 +1,9 @@
 # Metrilens 产品与技术设计方案
 
-- 文档版本：0.6
-- 更新日期：2026-07-26
-- 状态：0.6 已实施并通过 L2 双轮独立审查
+- 文档修订：0.7
+- 对应 App 版本：0.5.0（下一版本开发中）
+- 更新日期：2026-08-10
+- 状态：当前实现说明
 - 核心原则：轻量优先、数据诚实、无侵入、可降级
 
 ## 0.5 阶段扩展（2–9）
@@ -297,8 +298,13 @@ AppDelegate
 ├── LifecycleEventBridge
 ├── StatusItemController
 ├── PopoverController
+│   ├── PopoverLayoutBuilder
+│   ├── PopoverMetricFormatter
 │   └── HeatDiagnosisAnalyzer
 ├── PreferencesController
+│   └── PreferencesForm
+├── AppPreferences
+│   └── SettingsSchema（显示、采样、提醒、系统）
 ├── MetricAlertController
 └── MetricSampler
     ├── CPUProvider
@@ -318,6 +324,9 @@ AppDelegate
 
 架构要求：
 
+- 控制器只负责编排状态、动作和生命周期；AppKit 控件构建与指标格式化分别由独立组件负责。
+- `AppPreferences` 通过一份 schema 统一定义偏好键、默认值、校验、损坏修复与恢复默认值；业务代码只读取分组设置快照。
+- 所有用户可见文案通过集中式 `AppTextCatalog` 取值，脚本校验文案键完整性及格式参数一致性。
 - `MetricSampler` 在单一串行 utility 队列上运行。
 - `LifecycleEventBridge` 只负责把 AppKit、Foundation、IOPowerSources 事件转交给采样队列。
 - `ProviderDeadlineScheduler` 维护各 Provider 的单调时钟 deadline，并只持有一个带 leeway 的 `DispatchSourceTimer`。
@@ -500,6 +509,8 @@ machFailure(code)
 - 磁盘严重度转入占位状态时恢复普通文本颜色
 - 弹窗关闭后按菜单栏指标和提醒开关暂停无需求 Provider
 - 登录时启动及需要用户批准的状态
+- 真实 `XCUIApplication` 从菜单栏状态项打开弹窗，进入设置并从简体中文切换到 English；断言窗口标题、关键控件和语言值。
+- XCUITest 使用独立 `UserDefaults` suite 并在启动时重置，避免读取或覆盖开发者的日常设置。
 
 ### 8.3 性能测试
 
