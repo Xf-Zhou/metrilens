@@ -4,6 +4,8 @@
 
 ## [未发布]
 
+## [0.6.0] - 2026-08-10
+
 ### 新增
 
 - 新增真实 `XCUIApplication` 端到端测试，覆盖菜单栏弹窗、设置窗口和中英文切换。
@@ -105,7 +107,8 @@
 - Metrilens 内存占用、电池当前/历史最高温度和系统热状态。
 - 1 秒、2 秒和 5 秒刷新频率，以及登录启动和菜单栏主指标设置。
 
-[未发布]: https://github.com/Xf-Zhou/metrilens/compare/v0.5.0...HEAD
+[未发布]: https://github.com/Xf-Zhou/metrilens/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Xf-Zhou/metrilens/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Xf-Zhou/metrilens/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Xf-Zhou/metrilens/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Xf-Zhou/metrilens/compare/v0.2.0...v0.3.0
