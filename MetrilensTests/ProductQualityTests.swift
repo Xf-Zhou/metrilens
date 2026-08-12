@@ -25,6 +25,61 @@ final class ProductQualityTests: XCTestCase {
         XCTAssertEqual(form.metricOrderPopup.indexOfSelectedItem, 3)
     }
 
+    func testPreferencesUseProgressiveDisclosurePages() {
+        let form = PreferencesForm()
+        form.render(
+            snapshot: PreferencesSnapshot(
+                display: DisplaySettings(language: .simplifiedChinese)
+            ),
+            loginItemEnabled: false,
+            notificationState: .authorized
+        )
+
+        XCTAssertEqual(form.pageSelector.label(forSegment: 0), "通用")
+        XCTAssertEqual(form.pageSelector.label(forSegment: 1), "显示")
+        XCTAssertEqual(form.pageSelector.label(forSegment: 2), "提醒")
+        XCTAssertEqual(form.pageVisibilityForTesting().general, true)
+
+        form.selectPageForTesting(2)
+
+        let visibility = form.pageVisibilityForTesting()
+        XCTAssertFalse(visibility.general)
+        XCTAssertFalse(visibility.display)
+        XCTAssertTrue(visibility.alerts)
+    }
+
+    func testPreferencesOnlyShowThresholdsForEnabledAlerts() {
+        let form = PreferencesForm()
+        form.render(
+            snapshot: PreferencesSnapshot(),
+            loginItemEnabled: false,
+            notificationState: .notDetermined
+        )
+        var visibility = form.alertThresholdVisibilityForTesting()
+        XCTAssertFalse(visibility.cpu)
+        XCTAssertFalse(visibility.memory)
+        XCTAssertFalse(visibility.batteryLevel)
+        XCTAssertFalse(visibility.batteryTemperature)
+        XCTAssertFalse(visibility.disk)
+
+        form.render(
+            snapshot: PreferencesSnapshot(
+                alerts: AlertSettings(
+                    enabled: true,
+                    enabledKinds: [.cpu, .batteryTemperature]
+                )
+            ),
+            loginItemEnabled: false,
+            notificationState: .authorized
+        )
+        visibility = form.alertThresholdVisibilityForTesting()
+        XCTAssertTrue(visibility.cpu)
+        XCTAssertFalse(visibility.memory)
+        XCTAssertFalse(visibility.batteryLevel)
+        XCTAssertTrue(visibility.batteryTemperature)
+        XCTAssertFalse(visibility.disk)
+    }
+
     func testMissingBuildInformationUsesLocalizedUnknownText() {
         let build = AppBuildInformation(version: nil, build: nil)
 
@@ -329,14 +384,43 @@ final class ProductQualityTests: XCTestCase {
         XCTAssertGreaterThan(layout.viewportHeight, 0)
         XCTAssertTrue(layout.scrollable)
         XCTAssertGreaterThan(layout.contentHeight, layout.viewportHeight)
+        XCTAssertFalse(controller.heatDiagnosisTitle.isHidden)
 
         let stack = try XCTUnwrap(controller.contentStack)
         let document = try XCTUnwrap(controller.contentScrollView.documentView)
-        XCTAssertEqual(stack.frame.minX, 16, accuracy: 0.001)
+        XCTAssertEqual(stack.frame.minX, 24, accuracy: 0.001)
         XCTAssertEqual(
             document.bounds.width - stack.frame.maxX,
-            16,
+            24,
             accuracy: 0.001
+        )
+        XCTAssertEqual(
+            controller.cpuSection.frame.width,
+            controller.metricSectionsStack.bounds.width,
+            accuracy: 0.001
+        )
+    }
+
+    func testPopoverCollapsesNormalHeatDiagnosisAndKeepsHistoricalMaximumNeutral() {
+        let stamp = SampleStamp(wallTime: Date(), uptime: 10)
+        let controller = PopoverController(
+            preferences: PreferencesSnapshot(
+                display: DisplaySettings(language: .simplifiedChinese)
+            )
+        )
+        var snapshot = SystemSnapshot.initial()
+        snapshot.thermalLevel = .nominal
+        snapshot.batteryTemperature = .available(34, stamp)
+        snapshot.batteryMaximumTemperature = .available(45, stamp)
+
+        controller.update(snapshot: snapshot)
+
+        XCTAssertTrue(controller.heatDiagnosisTitle.isHidden)
+        XCTAssertTrue(controller.heatDiagnosisValue.isHidden)
+        XCTAssertTrue(
+            controller.batteryMaximumValue.textColor?.isEqual(
+                NSColor.labelColor
+            ) == true
         )
     }
 
@@ -454,8 +538,10 @@ final class ProductQualityTests: XCTestCase {
         controller.update(snapshot: snapshot)
         let presentation = controller.diskPresentationForTesting()
 
-        XCTAssertEqual(presentation.usedText, "系统未提供该字段")
-        XCTAssertEqual(presentation.freeText, "系统未提供该字段")
+        XCTAssertEqual(presentation.usedText, "—")
+        XCTAssertEqual(presentation.freeText, "—")
+        XCTAssertEqual(controller.diskUsageValue.toolTip, "系统未提供该字段")
+        XCTAssertEqual(controller.diskFreeValue.toolTip, "系统未提供该字段")
         XCTAssertTrue(presentation.usedColor.isEqual(NSColor.labelColor))
         XCTAssertTrue(presentation.freeColor.isEqual(NSColor.labelColor))
     }
@@ -494,8 +580,10 @@ final class ProductQualityTests: XCTestCase {
         controller.update(snapshot: snapshot)
         presentation = controller.networkPresentationForTesting()
 
-        XCTAssertEqual(presentation.downloadText, "系统未提供该字段")
-        XCTAssertEqual(presentation.uploadText, "系统未提供该字段")
+        XCTAssertEqual(presentation.downloadText, "—")
+        XCTAssertEqual(presentation.uploadText, "—")
+        XCTAssertEqual(controller.networkDownloadValue.toolTip, "系统未提供该字段")
+        XCTAssertEqual(controller.networkUploadValue.toolTip, "系统未提供该字段")
         XCTAssertTrue(presentation.downloadColor.isEqual(NSColor.labelColor))
         XCTAssertTrue(presentation.uploadColor.isEqual(NSColor.labelColor))
     }

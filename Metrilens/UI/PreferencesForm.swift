@@ -27,6 +27,7 @@ struct PreferencesFormActions {
 }
 
 final class PreferencesForm: NSView {
+    let pageSelector = NSSegmentedControl()
     let languagePopup = NSPopUpButton()
     let displayModePopup = NSPopUpButton()
     let metricPopup = NSPopUpButton()
@@ -85,6 +86,15 @@ final class PreferencesForm: NSView {
     private let batteryTemperatureThresholdLabel = NSTextField(labelWithString: "")
     private let diskFreeThresholdLabel = NSTextField(labelWithString: "")
     private let notificationStatusLabel = NSTextField(labelWithString: "")
+    private let generalPage = NSStackView()
+    private let displayPage = NSStackView()
+    private let alertsPage = NSStackView()
+    private var cpuThresholdRow = NSStackView()
+    private var memoryThresholdRow = NSStackView()
+    private var batteryLevelThresholdRow = NSStackView()
+    private var batteryTemperatureThresholdRow = NSStackView()
+    private var diskFreeThresholdRow = NSStackView()
+    private var alertDurationRow = NSStackView()
     private weak var contentScrollView: NSScrollView?
     private weak var contentDocumentView: NSView?
 
@@ -207,6 +217,35 @@ final class PreferencesForm: NSView {
         )
     }
 
+    func selectPageForTesting(_ index: Int) {
+        pageSelector.selectedSegment = index
+        showSelectedPage()
+    }
+
+    func pageVisibilityForTesting() -> (
+        general: Bool,
+        display: Bool,
+        alerts: Bool
+    ) {
+        (!generalPage.isHidden, !displayPage.isHidden, !alertsPage.isHidden)
+    }
+
+    func alertThresholdVisibilityForTesting() -> (
+        cpu: Bool,
+        memory: Bool,
+        batteryLevel: Bool,
+        batteryTemperature: Bool,
+        disk: Bool
+    ) {
+        (
+            !cpuThresholdRow.isHidden,
+            !memoryThresholdRow.isHidden,
+            !batteryLevelThresholdRow.isHidden,
+            !batteryTemperatureThresholdRow.isHidden,
+            !diskFreeThresholdRow.isHidden
+        )
+    }
+
     func updateMetricMoveButtons(metricCount: Int) {
         let index = metricOrderPopup.indexOfSelectedItem
         moveMetricUpButton.isEnabled = index > 0
@@ -240,6 +279,7 @@ final class PreferencesForm: NSView {
 
     private func buildContent() {
         sourceInfo.textColor = .secondaryLabelColor
+        sourceInfo.font = .systemFont(ofSize: 11)
 
         let compactControls = NSStackView(views: compactMetricCheckboxes)
         compactControls.orientation = .horizontal
@@ -255,56 +295,108 @@ final class PreferencesForm: NSView {
         notificationControls.orientation = .horizontal
         notificationControls.spacing = 8
 
+        cpuThresholdRow = settingRow(cpuThresholdLabel, control: cpuThresholdPopup)
+        memoryThresholdRow = settingRow(
+            memoryThresholdLabel,
+            control: memoryThresholdPopup
+        )
+        batteryLevelThresholdRow = settingRow(
+            batteryLevelThresholdLabel,
+            control: batteryLevelThresholdPopup
+        )
+        batteryTemperatureThresholdRow = settingRow(
+            batteryTemperatureThresholdLabel,
+            control: batteryTemperatureThresholdPopup
+        )
+        diskFreeThresholdRow = settingRow(
+            diskFreeThresholdLabel,
+            control: diskFreeThresholdPopup
+        )
+        alertDurationRow = settingRow(
+            alertDurationLabel,
+            control: alertDurationPopup
+        )
+
+        configurePage(
+            generalPage,
+            views: [
+                samplingSectionTitle,
+                settingRow(languageLabel, control: languagePopup),
+                settingRow(intervalLabel, control: intervalPopup),
+                sparklineCheckbox,
+                separator(),
+                systemSectionTitle,
+                loginCheckbox,
+                sourceInfo,
+                resetButton
+            ]
+        )
+        configurePage(
+            displayPage,
+            views: [
+                displaySectionTitle,
+                settingRow(displayModeLabel, control: displayModePopup),
+                settingRow(metricLabel, control: metricPopup),
+                settingRow(compactMetricsLabel, control: compactControls),
+                settingRow(metricOrderLabel, control: orderControls),
+                settingRow(separatorLabel, control: separatorPopup),
+                settingRow(precisionLabel, control: precisionPopup)
+            ]
+        )
+        configurePage(
+            alertsPage,
+            views: [
+                alertsSectionTitle,
+                alertsCheckbox,
+                cpuAlertCheckbox,
+                cpuThresholdRow,
+                memoryAlertCheckbox,
+                memoryThresholdRow,
+                thermalAlertCheckbox,
+                batteryLevelAlertCheckbox,
+                batteryLevelThresholdRow,
+                batteryTemperatureAlertCheckbox,
+                batteryTemperatureThresholdRow,
+                diskFreeAlertCheckbox,
+                diskFreeThresholdRow,
+                alertDurationRow,
+                separator(),
+                settingRow(notificationStatusLabel, control: notificationStatusValue),
+                notificationControls
+            ]
+        )
+
+        pageSelector.segmentCount = 3
+        pageSelector.trackingMode = .selectOne
+        pageSelector.selectedSegment = 0
+        pageSelector.target = self
+        pageSelector.action = #selector(pageChanged)
+        pageSelector.setAccessibilityIdentifier("metrilens.preferences.pages")
+        pageSelector.widthAnchor.constraint(equalToConstant: 300).isActive = true
+
         let stack = NSStackView(views: [
-            displaySectionTitle,
-            settingRow(languageLabel, control: languagePopup),
-            settingRow(displayModeLabel, control: displayModePopup),
-            settingRow(metricLabel, control: metricPopup),
-            settingRow(compactMetricsLabel, control: compactControls),
-            settingRow(metricOrderLabel, control: orderControls),
-            settingRow(separatorLabel, control: separatorPopup),
-            settingRow(precisionLabel, control: precisionPopup),
+            pageSelector,
             separator(),
-            samplingSectionTitle,
-            settingRow(intervalLabel, control: intervalPopup),
-            sparklineCheckbox,
-            separator(),
-            alertsSectionTitle,
-            alertsCheckbox,
-            cpuAlertCheckbox,
-            settingRow(cpuThresholdLabel, control: cpuThresholdPopup),
-            memoryAlertCheckbox,
-            settingRow(memoryThresholdLabel, control: memoryThresholdPopup),
-            thermalAlertCheckbox,
-            batteryLevelAlertCheckbox,
-            settingRow(batteryLevelThresholdLabel, control: batteryLevelThresholdPopup),
-            batteryTemperatureAlertCheckbox,
-            settingRow(
-                batteryTemperatureThresholdLabel,
-                control: batteryTemperatureThresholdPopup
-            ),
-            diskFreeAlertCheckbox,
-            settingRow(diskFreeThresholdLabel, control: diskFreeThresholdPopup),
-            settingRow(alertDurationLabel, control: alertDurationPopup),
-            settingRow(notificationStatusLabel, control: notificationStatusValue),
-            notificationControls,
-            separator(),
-            systemSectionTitle,
-            loginCheckbox,
-            sourceInfo,
-            resetButton
+            generalPage,
+            displayPage,
+            alertsPage
         ])
         stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 11
-        stack.edgeInsets = NSEdgeInsets(top: 22, left: 24, bottom: 22, right: 24)
+        stack.alignment = .centerX
+        stack.spacing = 14
         stack.translatesAutoresizingMaskIntoConstraints = false
+
+        for page in [generalPage, displayPage, alertsPage] {
+            page.widthAnchor.constraint(equalToConstant: 492).isActive = true
+        }
+        showSelectedPage()
 
         let documentView = PreferencesDocumentView()
         documentView.translatesAutoresizingMaskIntoConstraints = false
         documentView.addSubview(stack)
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         scrollView.documentView = documentView
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -317,16 +409,49 @@ final class PreferencesForm: NSView {
             scrollView.topAnchor.constraint(equalTo: topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
             documentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
-            stack.leadingAnchor.constraint(equalTo: documentView.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: documentView.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: documentView.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: documentView.bottomAnchor),
+            stack.leadingAnchor.constraint(
+                equalTo: documentView.leadingAnchor,
+                constant: 24
+            ),
+            stack.trailingAnchor.constraint(
+                equalTo: documentView.trailingAnchor,
+                constant: -24
+            ),
+            stack.topAnchor.constraint(equalTo: documentView.topAnchor, constant: 20),
+            stack.bottomAnchor.constraint(
+                equalTo: documentView.bottomAnchor,
+                constant: -22
+            ),
             sourceInfo.widthAnchor.constraint(equalToConstant: 492)
         ])
     }
 
+    private func configurePage(_ page: NSStackView, views: [NSView]) {
+        page.setViews(views, in: .top)
+        page.orientation = .vertical
+        page.alignment = .leading
+        page.spacing = 11
+    }
+
+    @objc private func pageChanged() {
+        showSelectedPage()
+        guard let scrollView = contentScrollView else { return }
+        scrollView.contentView.scroll(to: .zero)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    private func showSelectedPage() {
+        let selected = max(0, pageSelector.selectedSegment)
+        generalPage.isHidden = selected != 0
+        displayPage.isHidden = selected != 1
+        alertsPage.isHidden = selected != 2
+    }
+
     private func applyLocalization(snapshot: PreferencesSnapshot) {
         let language = snapshot.display.language
+        pageSelector.setLabel(language.localized("General"), forSegment: 0)
+        pageSelector.setLabel(language.localized("Display"), forSegment: 1)
+        pageSelector.setLabel(language.localized("Alerts"), forSegment: 2)
         displaySectionTitle.stringValue = language.localized("Menu Bar")
         samplingSectionTitle.stringValue = language.localized("Sampling & Charts")
         alertsSectionTitle.stringValue = language.localized("Local Alerts")
@@ -347,7 +472,7 @@ final class PreferencesForm: NSView {
         metricOrderLabel.stringValue = language.localized("Metric Order")
         separatorLabel.stringValue = language.localized("Separator")
         precisionLabel.stringValue = language.localized("Number Precision")
-        intervalLabel.stringValue = language.localized("CPU/Memory Refresh")
+        intervalLabel.stringValue = language.localized("Metric Refresh")
         cpuThresholdLabel.stringValue = language.localized("CPU Threshold")
         memoryThresholdLabel.stringValue = language.localized("Memory Threshold")
         alertDurationLabel.stringValue = language.localized("Sustain Duration")
@@ -431,8 +556,20 @@ final class PreferencesForm: NSView {
         compactBatteryCheckbox.title = language.localized("Battery")
         compactNetworkCheckbox.title = language.localized("Network")
         compactDiskCheckbox.title = language.localized("Disk")
-        moveMetricUpButton.title = language.localized("Up")
-        moveMetricDownButton.title = language.localized("Down")
+        moveMetricUpButton.title = ""
+        moveMetricUpButton.image = NSImage(
+            systemSymbolName: "arrow.up",
+            accessibilityDescription: language.localized("Up")
+        )
+        moveMetricUpButton.toolTip = language.localized("Up")
+        moveMetricUpButton.setAccessibilityLabel(language.localized("Up"))
+        moveMetricDownButton.title = ""
+        moveMetricDownButton.image = NSImage(
+            systemSymbolName: "arrow.down",
+            accessibilityDescription: language.localized("Down")
+        )
+        moveMetricDownButton.toolTip = language.localized("Down")
+        moveMetricDownButton.setAccessibilityLabel(language.localized("Down"))
         loginCheckbox.title = language.localized("Launch at Login")
         sparklineCheckbox.title = language.localized("Show CPU and memory sparklines")
         alertsCheckbox.title = language.localized(
@@ -565,6 +702,13 @@ final class PreferencesForm: NSView {
         diskFreeThresholdPopup.isEnabled =
             snapshot.alerts.enabled && snapshot.alerts.isEnabled(.diskFree)
         alertDurationPopup.isEnabled = snapshot.alerts.enabled
+        cpuThresholdRow.isHidden = !cpuThresholdPopup.isEnabled
+        memoryThresholdRow.isHidden = !memoryThresholdPopup.isEnabled
+        batteryLevelThresholdRow.isHidden = !batteryLevelThresholdPopup.isEnabled
+        batteryTemperatureThresholdRow.isHidden =
+            !batteryTemperatureThresholdPopup.isEnabled
+        diskFreeThresholdRow.isHidden = !diskFreeThresholdPopup.isEnabled
+        alertDurationRow.isHidden = !snapshot.alerts.enabled
         applyNotificationStatus(notificationState, language: snapshot.display.language)
         updateMetricMoveButtons(metricCount: snapshot.display.metricOrder.count)
     }

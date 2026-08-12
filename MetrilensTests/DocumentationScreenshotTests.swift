@@ -86,6 +86,52 @@ final class DocumentationScreenshotTests: XCTestCase {
         )
     }
 
+    func testPreferencesDocumentationScreenshotsRender() throws {
+        var alerts = AlertSettings()
+        alerts.enabled = true
+        alerts.enabledKinds = [.cpu, .batteryTemperature, .diskFree]
+        let form = PreferencesForm()
+        form.render(
+            snapshot: PreferencesSnapshot(
+                display: DisplaySettings(language: .simplifiedChinese),
+                alerts: alerts
+            ),
+            loginItemEnabled: true,
+            notificationState: .authorized
+        )
+
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 540, height: 600))
+        root.appearance = NSAppearance(named: .aqua)
+        root.wantsLayer = true
+        root.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        root.addSubview(form)
+        NSLayoutConstraint.activate([
+            form.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            form.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            form.topAnchor.constraint(equalTo: root.topAnchor),
+            form.bottomAnchor.constraint(equalTo: root.bottomAnchor)
+        ])
+
+        for (index, name) in ["general", "display", "alerts"].enumerated() {
+            form.selectPageForTesting(index)
+            root.layoutSubtreeIfNeeded()
+            let representation = try XCTUnwrap(
+                root.bitmapImageRepForCachingDisplay(in: root.bounds)
+            )
+            root.cacheDisplay(in: root.bounds, to: representation)
+            let data = try XCTUnwrap(
+                representation.representation(using: .png, properties: [:])
+            )
+            XCTAssertGreaterThan(data.count, 10_000)
+            try data.write(
+                to: URL(
+                    fileURLWithPath: "/tmp/metrilens-preferences-\(name).png"
+                ),
+                options: .atomic
+            )
+        }
+    }
+
     private func history(base: Double, amplitude: Double) -> [MetricHistoryPoint] {
         (0..<60).map { index in
             MetricHistoryPoint(

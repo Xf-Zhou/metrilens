@@ -395,6 +395,45 @@ final class StateAndDiagnosticsTests: XCTestCase {
         XCTAssertEqual(nearHundred, 80...100)
     }
 
+    func testSparklineHoverLabelAvoidsScaleAndCollectingLabelsAtEdges() {
+        let bounds = NSRect(x: 0, y: 0, width: 240, height: 40)
+        let labelSize = NSSize(width: 42, height: 12)
+
+        let left = SparklineView.hoverLabelOrigin(
+            point: NSPoint(x: 0, y: 14),
+            labelSize: labelSize,
+            bounds: bounds
+        )
+        let right = SparklineView.hoverLabelOrigin(
+            point: NSPoint(x: 240, y: 38),
+            labelSize: labelSize,
+            bounds: bounds
+        )
+
+        XCTAssertEqual(left.x, bounds.minX)
+        XCTAssertEqual(right.x, bounds.maxX - labelSize.width)
+        XCTAssertGreaterThanOrEqual(left.y, bounds.minY + 12)
+        XCTAssertGreaterThanOrEqual(right.y, bounds.minY + 12)
+    }
+
+    func testSparklineAccessibilityIncludesLocalizedDisplayRange() throws {
+        let view = SparklineView()
+        view.metricName = "CPU"
+        view.points = [
+            MetricHistoryPoint(uptime: 10, percent: 10),
+            MetricHistoryPoint(uptime: 20, percent: 20)
+        ]
+        view.summary = MetricHistorySummary(average: 15, peak: 20)
+
+        view.language = .english
+        let english = try XCTUnwrap(view.accessibilityValue() as? String)
+        XCTAssertTrue(english.contains("display range 5 to 25%"))
+
+        view.language = .simplifiedChinese
+        let chinese = try XCTUnwrap(view.accessibilityValue() as? String)
+        XCTAssertTrue(chinese.contains("显示范围 5 至 25%"))
+    }
+
     func testSettingsExplainTheMemoryProductDefinition() {
         let sourceInformation = AppTextCatalog.localized(
             "preferences.sourceInformation",

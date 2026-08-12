@@ -106,6 +106,7 @@ enum PopoverLayoutBuilder {
         configureSection(
             owner.batterySection,
             views: [
+                owner.batterySectionTitle,
                 batteryLevelRow,
                 batteryStateRow,
                 batteryCyclesRow,
@@ -126,7 +127,7 @@ enum PopoverLayoutBuilder {
         )
         configureSection(
             owner.networkSection,
-            views: [networkDownloadRow, networkUploadRow]
+            views: [owner.networkSectionTitle, networkDownloadRow, networkUploadRow]
         )
         let diskUsageRow = makeRow(
             title: owner.diskUsageTitle,
@@ -136,11 +137,35 @@ enum PopoverLayoutBuilder {
             title: owner.diskFreeTitle,
             value: owner.diskFreeValue
         )
-        configureSection(owner.diskSection, views: [diskUsageRow, diskFreeRow])
+        configureSection(
+            owner.diskSection,
+            views: [owner.diskSectionTitle, diskUsageRow, diskFreeRow]
+        )
+
+        for title in [
+            owner.batterySectionTitle,
+            owner.networkSectionTitle,
+            owner.diskSectionTitle
+        ] {
+            configureSectionTitle(title)
+        }
 
         owner.metricSectionsStack.orientation = .vertical
         owner.metricSectionsStack.alignment = .width
         owner.metricSectionsStack.spacing = 12
+        let metricSections = [
+            owner.cpuSection,
+            owner.memorySection,
+            owner.batterySection,
+            owner.networkSection,
+            owner.diskSection
+        ]
+        owner.metricSectionsStack.setViews(metricSections, in: .top)
+        for section in metricSections {
+            section.widthAnchor.constraint(
+                equalTo: owner.metricSectionsStack.widthAnchor
+            ).isActive = true
+        }
         let thermalRow = makeRow(title: owner.thermalTitle, value: owner.thermalValue)
         owner.heatDiagnosisTitle.font = .systemFont(ofSize: 12, weight: .semibold)
         owner.heatDiagnosisValue.textColor = .secondaryLabelColor
@@ -193,11 +218,11 @@ enum PopoverLayoutBuilder {
             ),
             stack.leadingAnchor.constraint(
                 equalTo: document.leadingAnchor,
-                constant: 16
+                constant: 24
             ),
             stack.trailingAnchor.constraint(
                 equalTo: document.trailingAnchor,
-                constant: -16
+                constant: -24
             ),
             stack.topAnchor.constraint(
                 equalTo: document.topAnchor,
@@ -282,9 +307,14 @@ enum PopoverLayoutBuilder {
         field.alignment = .right
     }
 
+    private static func configureSectionTitle(_ field: NSTextField) {
+        field.font = .systemFont(ofSize: 10, weight: .semibold)
+        field.textColor = .tertiaryLabelColor
+    }
+
     private static func configureSparkline(_ view: SparklineView) {
         view.translatesAutoresizingMaskIntoConstraints = false
-        view.heightAnchor.constraint(equalToConstant: 34).isActive = true
+        view.heightAnchor.constraint(equalToConstant: 40).isActive = true
     }
 
     private static func separator() -> NSBox {

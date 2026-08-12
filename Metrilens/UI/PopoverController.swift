@@ -27,6 +27,9 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     let titleLabel = NSTextField(labelWithString: "Metrilens")
     let cpuTitle = NSTextField(labelWithString: "CPU")
     let memoryTitle = NSTextField(labelWithString: "")
+    let batterySectionTitle = NSTextField(labelWithString: "")
+    let networkSectionTitle = NSTextField(labelWithString: "")
+    let diskSectionTitle = NSTextField(labelWithString: "")
     let batteryTitle = NSTextField(labelWithString: "")
     let batteryLevelTitle = NSTextField(labelWithString: "")
     let batteryStateTitle = NSTextField(labelWithString: "")
@@ -173,6 +176,10 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     func update(snapshot: SystemSnapshot) {
         let language = preferences.display.language
         cpuValue.stringValue = PopoverMetricFormatter.cpuText(snapshot.cpu, language: language)
+        setFailureReason(PopoverMetricFormatter.failureReason(
+            snapshot.cpu,
+            language: language
+        ), on: cpuValue)
         cpuValue.setAccessibilityValue(cpuValue.stringValue)
         cpuValue.textColor = PopoverMetricFormatter.metricTextColor(snapshot.cpu)
         cpuSummaryValue.stringValue = PopoverMetricFormatter.summaryText(
@@ -181,6 +188,10 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         )
 
         memoryValue.stringValue = PopoverMetricFormatter.memoryText(snapshot.memory, language: language)
+        setFailureReason(PopoverMetricFormatter.failureReason(
+            snapshot.memory,
+            language: language
+        ), on: memoryValue)
         memoryValue.setAccessibilityValue(memoryValue.stringValue)
         memoryValue.textColor = PopoverMetricFormatter.metricTextColor(snapshot.memory)
         memorySummaryValue.stringValue = PopoverMetricFormatter.summaryText(
@@ -192,11 +203,13 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         updateTemperatureField(batteryValue, state: snapshot.batteryTemperature)
         updateTemperatureField(
             batterySessionMaximumValue,
-            state: snapshot.batterySessionMaximumTemperature
+            state: snapshot.batterySessionMaximumTemperature,
+            usesSeverityColor: false
         )
         updateTemperatureField(
             batteryMaximumValue,
-            state: snapshot.batteryMaximumTemperature
+            state: snapshot.batteryMaximumTemperature,
+            usesSeverityColor: false
         )
         thermalValue.stringValue = AppText.thermalName(
             snapshot.thermalLevel,
@@ -262,6 +275,9 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         titleLabel.stringValue = "Metrilens"
         cpuTitle.stringValue = "CPU"
         memoryTitle.stringValue = language.localized("Metrilens Memory")
+        batterySectionTitle.stringValue = language.localized("Battery")
+        networkSectionTitle.stringValue = language.localized("Network")
+        diskSectionTitle.stringValue = language.localized("Disk")
         batteryTitle.stringValue = language.localized("Battery Temperature")
         batteryLevelTitle.stringValue = language.localized("Battery Level")
         batteryStateTitle.stringValue = language.localized("Power State")
@@ -335,7 +351,7 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     private func updateContentSize() {
         let size = NSSize(
             width: 360,
-            height: preferences.sampling.showsSparkline ? 650 : 570
+            height: preferences.sampling.showsSparkline ? 650 : 550
         )
         popover.contentSize = size
         popover.contentViewController?.preferredContentSize = size
@@ -355,6 +371,10 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         guard let metric = state.value else {
             batteryHealthRow.isHidden = true
             let text = PopoverMetricFormatter.placeholder(state, language: preferences.display.language)
+            let reason = PopoverMetricFormatter.failureReason(
+                state,
+                language: preferences.display.language
+            )
             for field in [
                 batteryLevelValue,
                 batteryStateValue,
@@ -363,6 +383,7 @@ final class PopoverController: NSObject, NSPopoverDelegate {
             ] {
                 field.stringValue = text
                 field.textColor = PopoverMetricFormatter.metricTextColor(state)
+                setFailureReason(reason, on: field)
             }
             return
         }
@@ -386,14 +407,21 @@ final class PopoverController: NSObject, NSPopoverDelegate {
             batteryHealthValue
         ] {
             field.textColor = state.isStale ? .secondaryLabelColor : .labelColor
+            setFailureReason(nil, on: field)
         }
     }
 
     private func updateNetwork(_ state: MetricState<NetworkMetric>) {
         guard let metric = state.value else {
             let text = PopoverMetricFormatter.placeholder(state, language: preferences.display.language)
+            let reason = PopoverMetricFormatter.failureReason(
+                state,
+                language: preferences.display.language
+            )
             networkDownloadValue.stringValue = text
             networkUploadValue.stringValue = text
+            setFailureReason(reason, on: networkDownloadValue)
+            setFailureReason(reason, on: networkUploadValue)
             networkDownloadValue.textColor = PopoverMetricFormatter.metricTextColor(state)
             networkUploadValue.textColor = PopoverMetricFormatter.metricTextColor(state)
             return
@@ -402,6 +430,8 @@ final class PopoverController: NSObject, NSPopoverDelegate {
             metric.downloadBytesPerSecond
         )
         networkUploadValue.stringValue = PopoverMetricFormatter.rateText(metric.uploadBytesPerSecond)
+        setFailureReason(nil, on: networkDownloadValue)
+        setFailureReason(nil, on: networkUploadValue)
         networkDownloadValue.textColor = PopoverMetricFormatter.metricTextColor(state)
         networkUploadValue.textColor = PopoverMetricFormatter.metricTextColor(state)
     }
@@ -409,16 +439,24 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     private func updateDisk(_ state: MetricState<DiskCapacityMetric>) {
         guard let metric = state.value else {
             let text = PopoverMetricFormatter.placeholder(state, language: preferences.display.language)
+            let reason = PopoverMetricFormatter.failureReason(
+                state,
+                language: preferences.display.language
+            )
             diskUsageValue.stringValue = text
             diskFreeValue.stringValue = text
+            setFailureReason(reason, on: diskUsageValue)
+            setFailureReason(reason, on: diskFreeValue)
             diskUsageValue.textColor = PopoverMetricFormatter.metricTextColor(state)
             diskFreeValue.textColor = PopoverMetricFormatter.metricTextColor(state)
             return
         }
         diskUsageValue.stringValue = "\(PopoverMetricFormatter.byteText(metric.usedBytes))  "
-            + String(format: "%.0f%%", metric.usedPercent)
+            + String(format: "· %.0f%%", metric.usedPercent)
         diskFreeValue.stringValue = "\(PopoverMetricFormatter.byteText(metric.availableBytes))  "
-            + String(format: "%.0f%%", metric.freePercent)
+            + String(format: "· %.0f%%", metric.freePercent)
+        setFailureReason(nil, on: diskUsageValue)
+        setFailureReason(nil, on: diskFreeValue)
         let severity: MetricVisualSeverity =
             metric.freePercent <= 5 ? .warning
             : metric.freePercent <= 10 ? .caution
@@ -447,6 +485,8 @@ final class PopoverController: NSObject, NSPopoverDelegate {
             )
         }
         heatDiagnosisValue.stringValue = lines.joined(separator: "\n")
+        heatDiagnosisTitle.isHidden = !diagnosis.isAbnormal
+        heatDiagnosisValue.isHidden = !diagnosis.isAbnormal
         heatDiagnosisValue.textColor = diagnosis.severity == .urgent
             ? .systemRed
             : diagnosis.severity == .elevated
@@ -456,14 +496,26 @@ final class PopoverController: NSObject, NSPopoverDelegate {
 
     private func updateTemperatureField(
         _ field: NSTextField,
-        state: MetricState<Double>
+        state: MetricState<Double>,
+        usesSeverityColor: Bool = true
     ) {
         field.stringValue = PopoverMetricFormatter.temperatureText(
             state,
             language: preferences.display.language
         )
         field.setAccessibilityValue(field.stringValue)
-        field.textColor = PopoverMetricFormatter.temperatureTextColor(state)
+        setFailureReason(PopoverMetricFormatter.failureReason(
+            state,
+            language: preferences.display.language
+        ), on: field)
+        field.textColor = usesSeverityColor
+            ? PopoverMetricFormatter.temperatureTextColor(state)
+            : PopoverMetricFormatter.metricTextColor(state)
+    }
+
+    private func setFailureReason(_ reason: String?, on field: NSTextField) {
+        field.toolTip = reason
+        field.setAccessibilityHelp(reason)
     }
 
     @objc private func openPreferences() {

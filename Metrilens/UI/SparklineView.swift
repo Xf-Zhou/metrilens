@@ -87,6 +87,7 @@ final class SparklineView: NSView {
         super.draw(dirtyRect)
         if points.count >= 2 {
             drawLine()
+            drawRangeLabel()
         }
         if isCollecting {
             drawCollectingLabel()
@@ -106,13 +107,15 @@ final class SparklineView: NSView {
         let end = points.last?.uptime ?? start + 1
         let span = max(1, end - start)
         let verticalRange = Self.verticalRange(for: points)
+        let plotRect = self.plotRect
         for (index, point) in points.enumerated() {
-            let x = bounds.minX + CGFloat((point.uptime - start) / span) * bounds.width
+            let x = plotRect.minX
+                + CGFloat((point.uptime - start) / span) * plotRect.width
             let normalized = Self.normalizedHeight(
                 for: point.percent,
                 in: verticalRange
             )
-            let y = bounds.maxY - CGFloat(normalized) * max(1, bounds.height - 2) - 1
+            let y = plotRect.maxY - CGFloat(normalized) * max(1, plotRect.height)
             let location = NSPoint(x: x, y: y)
             index == 0 ? path.move(to: location) : path.line(to: location)
         }
@@ -141,12 +144,14 @@ final class SparklineView: NSView {
     private func drawHoverValue(_ point: MetricHistoryPoint) {
         guard let first = points.first, let last = points.last else { return }
         let span = max(1, last.uptime - first.uptime)
-        let x = bounds.minX + CGFloat((point.uptime - first.uptime) / span) * bounds.width
+        let plotRect = self.plotRect
+        let x = plotRect.minX
+            + CGFloat((point.uptime - first.uptime) / span) * plotRect.width
         let normalized = Self.normalizedHeight(
             for: point.percent,
             in: Self.verticalRange(for: points)
         )
-        let y = bounds.maxY - CGFloat(normalized) * max(1, bounds.height - 2) - 1
+        let y = plotRect.maxY - CGFloat(normalized) * max(1, plotRect.height)
 
         NSColor.controlAccentColor.setFill()
         NSBezierPath(
@@ -162,11 +167,40 @@ final class SparklineView: NSView {
             ]
         )
         let size = label.size()
-        let labelX = min(
-            bounds.maxX - size.width,
-            max(bounds.minX, x - size.width / 2)
+        let origin = Self.hoverLabelOrigin(
+            point: NSPoint(x: x, y: y),
+            labelSize: size,
+            bounds: bounds
         )
-        label.draw(at: NSPoint(x: labelX, y: bounds.minY))
+        label.draw(at: origin)
+    }
+
+    private var plotRect: NSRect {
+        NSRect(
+            x: bounds.minX,
+            y: bounds.minY + 12,
+            width: bounds.width,
+            height: max(1, bounds.height - 14)
+        )
+    }
+
+    private func drawRangeLabel() {
+        let range = Self.verticalRange(for: points)
+        let label = NSAttributedString(
+            string: String(
+                format: "%.0f–%.0f%%",
+                range.lowerBound,
+                range.upperBound
+            ),
+            attributes: [
+                .font: NSFont.monospacedDigitSystemFont(
+                    ofSize: 10,
+                    weight: .medium
+                ),
+                .foregroundColor: NSColor.secondaryLabelColor
+            ]
+        )
+        label.draw(at: NSPoint(x: bounds.minX, y: bounds.minY))
     }
 
     private func configureAccessibility() {
@@ -193,6 +227,12 @@ final class SparklineView: NSView {
         let collecting = isCollecting
             ? language.localized(", still collecting")
             : ""
+        let displayRange = Self.verticalRange(for: points)
+        let rangeText = String(
+            format: language.localized(", display range %.0f to %.0f%%"),
+            displayRange.lowerBound,
+            displayRange.upperBound
+        )
         let summaryText: String
         if let summary {
             summaryText = String(
@@ -208,10 +248,27 @@ final class SparklineView: NSView {
                 format: language.localized("%d samples, current %.1f%%%@%@"),
                 points.count,
                 current,
-                summaryText,
+                summaryText + rangeText,
                 collecting
             )
         )
+    }
+
+    static func hoverLabelOrigin(
+        point: NSPoint,
+        labelSize: NSSize,
+        bounds: NSRect
+    ) -> NSPoint {
+        let x = min(
+            bounds.maxX - labelSize.width,
+            max(bounds.minX, point.x - labelSize.width / 2)
+        )
+        let preferredY = point.y - labelSize.height - 4
+        let y = min(
+            bounds.maxY - labelSize.height,
+            max(bounds.minY + 12, preferredY)
+        )
+        return NSPoint(x: x, y: y)
     }
 
     static func nearestPoint(

@@ -31,7 +31,7 @@ enum PopoverMetricFormatter {
             countStyle: .memory
         )
         return String(
-            format: "\(used) / \(total)  %.0f%%%@",
+            format: "\(used) / \(total) · %.0f%%%@",
             value.percent,
             state.isStale ? language.localized(" · Stale") : ""
         )
@@ -119,10 +119,22 @@ enum PopoverMetricFormatter {
         language: AppLanguage
     ) -> String {
         switch state {
+        case .unsupported, .unavailable:
+            return "—"
+        case .available, .stale:
+            return "—"
+        }
+    }
+
+    static func failureReason<T>(
+        _ state: MetricState<T>,
+        language: AppLanguage
+    ) -> String? {
+        switch state {
         case let .unsupported(reason), let .unavailable(reason):
             return AppText.failureReason(reason, language: language)
         case .available, .stale:
-            return "—"
+            return nil
         }
     }
 

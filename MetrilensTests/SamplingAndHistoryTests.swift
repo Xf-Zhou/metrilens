@@ -100,7 +100,7 @@ final class SamplingAndHistoryTests: XCTestCase {
                 lowPower: false,
                 sleeping: false
             ),
-            [.cpu: 1]
+            [.cpu: 1, .network: 30]
         )
 
         let battery = PreferencesSnapshot(
@@ -113,7 +113,7 @@ final class SamplingAndHistoryTests: XCTestCase {
                 lowPower: false,
                 sleeping: false
             ),
-            [.battery: 30]
+            [.battery: 30, .network: 30]
         )
     }
 
@@ -147,7 +147,7 @@ final class SamplingAndHistoryTests: XCTestCase {
                 .cpu: 5,
                 .memory: 5,
                 .battery: 120,
-                .network: 5,
+                .network: 1,
                 .disk: 120
             ]
         )
@@ -176,7 +176,7 @@ final class SamplingAndHistoryTests: XCTestCase {
 
         XCTAssertEqual(periods[.cpu], 30)
         XCTAssertEqual(periods[.memory], 30)
-        XCTAssertEqual(periods[.network], 30)
+        XCTAssertEqual(periods[.network], 1)
     }
 
     func testCompactModeSamplesEverySelectedMetric() {
@@ -195,7 +195,7 @@ final class SamplingAndHistoryTests: XCTestCase {
                 lowPower: false,
                 sleeping: false
             ),
-            [.memory: 2, .battery: 30]
+            [.memory: 2, .battery: 30, .network: 30]
         )
     }
 
@@ -213,11 +213,11 @@ final class SamplingAndHistoryTests: XCTestCase {
                 lowPower: false,
                 sleeping: false
             ),
-            [.cpu: 2, .memory: 2, .battery: 30]
+            [.cpu: 2, .memory: 2, .battery: 30, .network: 30]
         )
     }
 
-    func testHiddenNetworkAndDiskProvidersRemainPaused() {
+    func testHiddenNetworkKeepsLowFrequencyBaselineWhileDiskPauses() {
         let preferences = PreferencesSnapshot()
 
         let periods = SamplingPolicy.resolve(
@@ -227,7 +227,7 @@ final class SamplingAndHistoryTests: XCTestCase {
             sleeping: false
         )
 
-        XCTAssertNil(periods[.network])
+        XCTAssertEqual(periods[.network], 30)
         XCTAssertNil(periods[.disk])
     }
 }
