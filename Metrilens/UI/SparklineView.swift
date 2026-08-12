@@ -105,9 +105,13 @@ final class SparklineView: NSView {
         let start = points.first?.uptime ?? 0
         let end = points.last?.uptime ?? start + 1
         let span = max(1, end - start)
+        let verticalRange = Self.verticalRange(for: points)
         for (index, point) in points.enumerated() {
             let x = bounds.minX + CGFloat((point.uptime - start) / span) * bounds.width
-            let normalized = min(1, max(0, point.percent / 100))
+            let normalized = Self.normalizedHeight(
+                for: point.percent,
+                in: verticalRange
+            )
             let y = bounds.maxY - CGFloat(normalized) * max(1, bounds.height - 2) - 1
             let location = NSPoint(x: x, y: y)
             index == 0 ? path.move(to: location) : path.line(to: location)
@@ -138,7 +142,10 @@ final class SparklineView: NSView {
         guard let first = points.first, let last = points.last else { return }
         let span = max(1, last.uptime - first.uptime)
         let x = bounds.minX + CGFloat((point.uptime - first.uptime) / span) * bounds.width
-        let normalized = min(1, max(0, point.percent / 100))
+        let normalized = Self.normalizedHeight(
+            for: point.percent,
+            in: Self.verticalRange(for: points)
+        )
         let y = bounds.maxY - CGFloat(normalized) * max(1, bounds.height - 2) - 1
 
         NSColor.controlAccentColor.setFill()
@@ -217,5 +224,46 @@ final class SparklineView: NSView {
         return points.min {
             abs($0.uptime - target) < abs($1.uptime - target)
         }
+    }
+
+    static func verticalRange(
+        for points: [MetricHistoryPoint]
+    ) -> ClosedRange<Double> {
+        let percentages = points.compactMap { point -> Double? in
+            guard point.percent.isFinite else { return nil }
+            return min(100, max(0, point.percent))
+        }
+        guard let minimum = percentages.min(),
+              let maximum = percentages.max() else {
+            return 0...100
+        }
+
+        let minimumSpan = 20.0
+        let observedSpan = maximum - minimum
+        let paddedSpan = observedSpan + max(4, observedSpan * 0.2)
+        let span = min(100, max(minimumSpan, paddedSpan))
+        let midpoint = (minimum + maximum) / 2
+        var lowerBound = midpoint - span / 2
+        var upperBound = midpoint + span / 2
+
+        if lowerBound < 0 {
+            upperBound -= lowerBound
+            lowerBound = 0
+        }
+        if upperBound > 100 {
+            lowerBound -= upperBound - 100
+            upperBound = 100
+        }
+
+        return max(0, lowerBound)...min(100, upperBound)
+    }
+
+    static func normalizedHeight(
+        for percent: Double,
+        in range: ClosedRange<Double>
+    ) -> Double {
+        guard percent.isFinite else { return 0 }
+        let span = max(1, range.upperBound - range.lowerBound)
+        return min(1, max(0, (percent - range.lowerBound) / span))
     }
 }

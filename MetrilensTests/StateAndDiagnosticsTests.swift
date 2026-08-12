@@ -363,6 +363,38 @@ final class StateAndDiagnosticsTests: XCTestCase {
         )
     }
 
+    func testSparklineExpandsSmallChangesWithinMinimumVerticalRange() {
+        let points = [
+            MetricHistoryPoint(uptime: 10, percent: 74.6),
+            MetricHistoryPoint(uptime: 20, percent: 81.2)
+        ]
+
+        let range = SparklineView.verticalRange(for: points)
+
+        XCTAssertEqual(range.upperBound - range.lowerBound, 20, accuracy: 0.001)
+        XCTAssertTrue(range.contains(74.6))
+        XCTAssertTrue(range.contains(81.2))
+        XCTAssertGreaterThan(
+            SparklineView.normalizedHeight(for: 81.2, in: range)
+                - SparklineView.normalizedHeight(for: 74.6, in: range),
+            0.3
+        )
+    }
+
+    func testSparklineVerticalRangeStaysWithinPercentageBounds() {
+        let nearZero = SparklineView.verticalRange(for: [
+            MetricHistoryPoint(uptime: 10, percent: 0),
+            MetricHistoryPoint(uptime: 20, percent: 2)
+        ])
+        let nearHundred = SparklineView.verticalRange(for: [
+            MetricHistoryPoint(uptime: 10, percent: 98),
+            MetricHistoryPoint(uptime: 20, percent: 100)
+        ])
+
+        XCTAssertEqual(nearZero, 0...20)
+        XCTAssertEqual(nearHundred, 80...100)
+    }
+
     func testSettingsExplainTheMemoryProductDefinition() {
         let sourceInformation = AppTextCatalog.localized(
             "preferences.sourceInformation",

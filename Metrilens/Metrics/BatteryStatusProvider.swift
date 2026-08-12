@@ -108,18 +108,28 @@ final class BatteryStatusProvider: BatteryStatusProviding {
             state = .unknown
         }
 
-        let condition = nonEmptyString(properties["BatteryHealthCondition"])
-            ?? nonEmptyString(properties["BatteryHealth"])
+        let healthCondition = nonEmptyString(
+            properties["BatteryHealthCondition"]
+        )?.lowercased()
+        let hasPermanentFailure =
+            exactInteger(properties["PermanentFailureStatus"])
+                .map { $0 > 0 } ?? false
         let health: BatteryHealth
-        switch condition?.lowercased() {
-        case kIOPSGoodValue.lowercased(): health = .good
-        case kIOPSFairValue.lowercased(): health = .fair
-        case kIOPSPoorValue.lowercased(): health = .poor
-        case kIOPSCheckBatteryValue.lowercased(),
-             kIOPSPermanentFailureValue.lowercased(),
-             "permanent failure",
-             "service recommended":
+        switch (hasPermanentFailure, healthCondition) {
+        case (true, _):
             health = .serviceRecommended
+        case (false, kIOPSCheckBatteryValue.lowercased()),
+             (false, kIOPSPermanentFailureValue.lowercased()),
+             (false, "permanent failure"),
+             (false, "service recommended"):
+            health = .serviceRecommended
+        case (false, nil):
+            switch nonEmptyString(properties["BatteryHealth"])?.lowercased() {
+            case kIOPSGoodValue.lowercased(): health = .good
+            case kIOPSFairValue.lowercased(): health = .fair
+            case kIOPSPoorValue.lowercased(): health = .poor
+            default: health = .unknown
+            }
         default:
             health = .unknown
         }

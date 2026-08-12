@@ -34,12 +34,59 @@ final class SystemMetricProviderTests: XCTestCase {
         XCTAssertEqual(try result.get().health, .good)
     }
 
+    func testBatteryStatusDoesNotMaskUnknownNonEmptyCondition() throws {
+        let result = BatteryStatusProvider.decode([
+            "CurrentCapacity": 92,
+            "MaxCapacity": 100,
+            "BatteryHealthCondition": "New Hardware Warning",
+            "BatteryHealth": "Good",
+            "PermanentFailureStatus": 0
+        ])
+
+        XCTAssertEqual(try result.get().health, .unknown)
+    }
+
     func testBatteryStatusRecognizesOfficialPermanentFailureValue() throws {
         let result = BatteryStatusProvider.decode([
             "CurrentCapacity": 50,
             "MaxCapacity": 100,
             "BatteryHealthCondition": "Permanent Battery Failure",
             "BatteryHealth": "Good"
+        ])
+
+        XCTAssertEqual(try result.get().health, .serviceRecommended)
+    }
+
+    func testBatteryStatusRecognizesOfficialCheckBatteryCondition() throws {
+        let result = BatteryStatusProvider.decode([
+            "CurrentCapacity": 94,
+            "MaxCapacity": 100,
+            "BatteryHealthCondition": "Check Battery",
+            "BatteryHealth": "Good"
+        ])
+
+        XCTAssertEqual(try result.get().health, .serviceRecommended)
+    }
+
+    func testBatteryStatusIgnoresConditionValueInHealthEstimate() throws {
+        let result = BatteryStatusProvider.decode([
+            "CurrentCapacity": 94,
+            "MaxCapacity": 100,
+            "BatteryHealthCondition": "",
+            "BatteryHealth": "Check Battery",
+            "PermanentFailureStatus": 0
+        ])
+
+        XCTAssertEqual(try result.get().health, .unknown)
+    }
+
+    func testBatteryStatusRecognizesPermanentFailureStatus() throws {
+        let result = BatteryStatusProvider.decode([
+            "CurrentCapacity": 94,
+            "MaxCapacity": 100,
+            "BatteryHealthCondition": "",
+            "BatteryHealth": "Check Battery",
+            "PermanentFailureStatus": 1
         ])
 
         XCTAssertEqual(try result.get().health, .serviceRecommended)

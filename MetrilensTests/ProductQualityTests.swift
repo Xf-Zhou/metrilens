@@ -297,7 +297,7 @@ final class ProductQualityTests: XCTestCase {
         XCTAssertEqual(focusRequests, 1)
     }
 
-    func testPopoverScrollsWhenMaximumHeatDiagnosisExceedsViewport() {
+    func testPopoverScrollsWhenMaximumHeatDiagnosisExceedsViewport() throws {
         let stamp = SampleStamp(wallTime: Date(), uptime: 10)
         var snapshot = SystemSnapshot.initial()
         snapshot.cpu = .available(CPUMetric(percent: 95), stamp)
@@ -329,6 +329,15 @@ final class ProductQualityTests: XCTestCase {
         XCTAssertGreaterThan(layout.viewportHeight, 0)
         XCTAssertTrue(layout.scrollable)
         XCTAssertGreaterThan(layout.contentHeight, layout.viewportHeight)
+
+        let stack = try XCTUnwrap(controller.contentStack)
+        let document = try XCTUnwrap(controller.contentScrollView.documentView)
+        XCTAssertEqual(stack.frame.minX, 16, accuracy: 0.001)
+        XCTAssertEqual(
+            document.bounds.width - stack.frame.maxX,
+            16,
+            accuracy: 0.001
+        )
     }
 
     func testPreferencesInitiallyShowsTopOfFlippedDocument() {

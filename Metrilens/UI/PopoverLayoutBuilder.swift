@@ -173,7 +173,6 @@ enum PopoverLayoutBuilder {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 14, right: 16)
         stack.translatesAutoresizingMaskIntoConstraints = false
         document.addSubview(stack)
         owner.contentStack = stack
@@ -186,29 +185,31 @@ enum PopoverLayoutBuilder {
             document.leadingAnchor.constraint(
                 equalTo: owner.contentScrollView.contentView.leadingAnchor
             ),
-            document.trailingAnchor.constraint(
-                equalTo: owner.contentScrollView.contentView.trailingAnchor
-            ),
             document.topAnchor.constraint(
                 equalTo: owner.contentScrollView.contentView.topAnchor
             ),
             document.widthAnchor.constraint(
                 equalTo: owner.contentScrollView.contentView.widthAnchor
             ),
-            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: document.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: document.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: document.bottomAnchor)
+            stack.leadingAnchor.constraint(
+                equalTo: document.leadingAnchor,
+                constant: 16
+            ),
+            stack.trailingAnchor.constraint(
+                equalTo: document.trailingAnchor,
+                constant: -16
+            ),
+            stack.topAnchor.constraint(
+                equalTo: document.topAnchor,
+                constant: 16
+            ),
+            stack.bottomAnchor.constraint(
+                equalTo: document.bottomAnchor,
+                constant: -14
+            )
         ])
-        for row in [
-            header,
-            owner.metricSectionsStack,
-            thermalRow,
-            owner.heatDiagnosisTitle,
-            owner.heatDiagnosisValue,
-            footer
-        ] {
-            row.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32).isActive = true
+        for row in rows {
+            row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
 
         owner.aboutButton.setAccessibilityIdentifier("metrilens.popover.about")
