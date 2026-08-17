@@ -363,7 +363,7 @@ final class StateAndDiagnosticsTests: XCTestCase {
         )
     }
 
-    func testSparklineExpandsSmallChangesWithinMinimumVerticalRange() {
+    func testSparklineUsesDataDrivenVerticalRange() {
         let points = [
             MetricHistoryPoint(uptime: 10, percent: 74.6),
             MetricHistoryPoint(uptime: 20, percent: 81.2)
@@ -371,13 +371,30 @@ final class StateAndDiagnosticsTests: XCTestCase {
 
         let range = SparklineView.verticalRange(for: points)
 
-        XCTAssertEqual(range.upperBound - range.lowerBound, 20, accuracy: 0.001)
+        XCTAssertEqual(range.upperBound - range.lowerBound, 9.9, accuracy: 0.001)
         XCTAssertTrue(range.contains(74.6))
         XCTAssertTrue(range.contains(81.2))
         XCTAssertGreaterThan(
             SparklineView.normalizedHeight(for: 81.2, in: range)
                 - SparklineView.normalizedHeight(for: 74.6, in: range),
-            0.3
+            0.6
+        )
+    }
+
+    func testSparklineMakesSubPercentChangesVisible() {
+        let points = [
+            MetricHistoryPoint(uptime: 10, percent: 83.7),
+            MetricHistoryPoint(uptime: 20, percent: 84.1),
+            MetricHistoryPoint(uptime: 30, percent: 83.9)
+        ]
+
+        let range = SparklineView.verticalRange(for: points)
+
+        XCTAssertEqual(range.upperBound - range.lowerBound, 2, accuracy: 0.001)
+        XCTAssertGreaterThan(
+            SparklineView.normalizedHeight(for: 84.1, in: range)
+                - SparklineView.normalizedHeight(for: 83.7, in: range),
+            0.19
         )
     }
 
@@ -391,8 +408,8 @@ final class StateAndDiagnosticsTests: XCTestCase {
             MetricHistoryPoint(uptime: 20, percent: 100)
         ])
 
-        XCTAssertEqual(nearZero, 0...20)
-        XCTAssertEqual(nearHundred, 80...100)
+        XCTAssertEqual(nearZero, 0...3)
+        XCTAssertEqual(nearHundred, 97...100)
     }
 
     func testSparklineHoverLabelAvoidsScaleAndCollectingLabelsAtEdges() {
@@ -426,12 +443,50 @@ final class StateAndDiagnosticsTests: XCTestCase {
         view.summary = MetricHistorySummary(average: 15, peak: 20)
 
         view.language = .english
+        XCTAssertEqual(
+            view.accessibilityLabel(),
+            "CPU usage over the last 10 minutes"
+        )
         let english = try XCTUnwrap(view.accessibilityValue() as? String)
-        XCTAssertTrue(english.contains("display range 5 to 25%"))
+        XCTAssertTrue(english.contains("display range 8 to 22%"))
+        XCTAssertTrue(
+            english.contains("last 60 seconds average 15.0%, peak 20.0%")
+        )
 
         view.language = .simplifiedChinese
+        XCTAssertEqual(view.accessibilityLabel(), "最近 10 分钟CPU使用率")
         let chinese = try XCTUnwrap(view.accessibilityValue() as? String)
-        XCTAssertTrue(chinese.contains("显示范围 5 至 25%"))
+        XCTAssertTrue(chinese.contains("显示范围 8 至 22%"))
+        XCTAssertTrue(chinese.contains("最近 60 秒平均 15.0%，峰值 20.0%"))
+    }
+
+    func testSummaryFormatterMakesBothWindowsExplicit() {
+        let summary = MetricHistorySummary(average: 15, peak: 20)
+
+        XCTAssertEqual(
+            PopoverMetricFormatter.summaryText(summary, language: .english),
+            "10 min chart · 60 sec avg 15.0% · Peak 20.0%"
+        )
+        XCTAssertEqual(
+            PopoverMetricFormatter.summaryText(summary, language: .simplifiedChinese),
+            "10 分钟曲线 · 近 60 秒平均 15.0% · 峰值 20.0%"
+        )
+    }
+
+    func testMemoryHeadingUsesPlainUsageName() {
+        let controller = PopoverController(
+            preferences: PreferencesSnapshot(
+                display: DisplaySettings(language: .simplifiedChinese)
+            )
+        )
+        XCTAssertEqual(controller.memoryTitle.stringValue, "内存占用")
+
+        controller.setPreferences(
+            PreferencesSnapshot(
+                display: DisplaySettings(language: .english)
+            )
+        )
+        XCTAssertEqual(controller.memoryTitle.stringValue, "Memory Usage")
     }
 
     func testSettingsExplainTheMemoryProductDefinition() {

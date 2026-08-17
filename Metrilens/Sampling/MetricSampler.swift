@@ -9,6 +9,42 @@ private enum MetricFailureSource: Hashable {
     case disk
 }
 
+struct MetricHistorySeries {
+    static let chartWindow: TimeInterval = 10 * 60
+    static let summaryWindow: TimeInterval = 60
+
+    private var chart = MetricHistoryBuffer(
+        window: chartWindow,
+        capacity: 601
+    )
+    private var summary = MetricHistoryBuffer(
+        window: summaryWindow,
+        capacity: 64
+    )
+
+    mutating func append(percent: Double, at uptime: TimeInterval) {
+        chart.append(percent: percent, at: uptime)
+        summary.append(percent: percent, at: uptime)
+    }
+
+    mutating func values(now: TimeInterval) -> [MetricHistoryPoint] {
+        chart.values(now: now)
+    }
+
+    mutating func recentSummary(now: TimeInterval) -> MetricHistorySummary? {
+        summary.summary(now: now)
+    }
+
+    func isCollecting(now: TimeInterval) -> Bool {
+        chart.isCollecting(now: now)
+    }
+
+    mutating func clear() {
+        chart.clear()
+        summary.clear()
+    }
+}
+
 final class MetricSampler {
     private let queue = DispatchQueue(label: "com.xfzhou.Metrilens.sampler", qos: .utility)
     private let cpuProvider: CPUProviding
@@ -26,8 +62,8 @@ final class MetricSampler {
     }
 
     private var snapshot = SystemSnapshot.initial()
-    private var cpuHistory = MetricHistoryBuffer()
-    private var memoryHistory = MetricHistoryBuffer()
+    private var cpuHistory = MetricHistorySeries()
+    private var memoryHistory = MetricHistorySeries()
     private var preferences: PreferencesSnapshot
     private var popoverVisible = false
     private var sleeping = false
@@ -423,10 +459,10 @@ final class MetricSampler {
     private func updateHistories(now: TimeInterval) {
         snapshot.cpuHistory = cpuHistory.values(now: now)
         snapshot.cpuHistoryCollecting = cpuHistory.isCollecting(now: now)
-        snapshot.cpuHistorySummary = cpuHistory.summary(now: now)
+        snapshot.cpuHistorySummary = cpuHistory.recentSummary(now: now)
         snapshot.memoryHistory = memoryHistory.values(now: now)
         snapshot.memoryHistoryCollecting = memoryHistory.isCollecting(now: now)
-        snapshot.memoryHistorySummary = memoryHistory.summary(now: now)
+        snapshot.memoryHistorySummary = memoryHistory.recentSummary(now: now)
     }
 
     private func updateRuntimeState() {

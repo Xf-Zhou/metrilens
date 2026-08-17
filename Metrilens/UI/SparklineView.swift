@@ -236,7 +236,7 @@ final class SparklineView: NSView {
         let summaryText: String
         if let summary {
             summaryText = String(
-                format: language.localized(", average %.1f%%, peak %.1f%%"),
+                format: language.localized("sparkline.summaryAccessibility"),
                 summary.average,
                 summary.peak
             )
@@ -295,9 +295,12 @@ final class SparklineView: NSView {
             return 0...100
         }
 
-        let minimumSpan = 20.0
+        // Keep quiet metrics readable without implying movement that was not
+        // sampled. Two percentage points still leave enough context around
+        // sub-percent memory changes while avoiding an over-zoomed chart.
+        let minimumSpan = 2.0
         let observedSpan = maximum - minimum
-        let paddedSpan = observedSpan + max(4, observedSpan * 0.2)
+        let paddedSpan = observedSpan * 1.5
         let span = min(100, max(minimumSpan, paddedSpan))
         let midpoint = (minimum + maximum) / 2
         var lowerBound = midpoint - span / 2
