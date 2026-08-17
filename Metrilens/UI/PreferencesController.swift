@@ -76,6 +76,7 @@ final class PreferencesController: NSWindowController {
             target: self,
             actions: PreferencesFormActions(
                 languageChanged: #selector(languageChanged),
+                interfaceStyleChanged: #selector(interfaceStyleChanged),
                 displayModeChanged: #selector(displayModeChanged),
                 metricChanged: #selector(metricChanged),
                 compactMetricsChanged: #selector(compactMetricsChanged),
@@ -116,6 +117,13 @@ final class PreferencesController: NSWindowController {
     @objc private func languageChanged() {
         let index = max(0, form.languagePopup.indexOfSelectedItem)
         preferences.updateDisplay { $0.language = AppLanguage.allCases[index] }
+    }
+
+    @objc private func interfaceStyleChanged() {
+        let index = max(0, form.interfaceStylePopup.indexOfSelectedItem)
+        preferences.updateDisplay {
+            $0.interfaceStyle = InterfaceStyle.allCases[index]
+        }
     }
 
     @objc private func displayModeChanged() {

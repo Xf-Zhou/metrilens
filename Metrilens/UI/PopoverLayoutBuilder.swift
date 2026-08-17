@@ -203,10 +203,18 @@ enum PopoverLayoutBuilder {
         owner.contentStack = stack
 
         NSLayoutConstraint.activate([
-            owner.contentScrollView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            owner.contentScrollView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            owner.contentScrollView.topAnchor.constraint(equalTo: root.topAnchor),
-            owner.contentScrollView.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            owner.contentScrollView.leadingAnchor.constraint(
+                equalTo: root.safeAreaLayoutGuide.leadingAnchor
+            ),
+            owner.contentScrollView.trailingAnchor.constraint(
+                equalTo: root.safeAreaLayoutGuide.trailingAnchor
+            ),
+            owner.contentScrollView.topAnchor.constraint(
+                equalTo: root.safeAreaLayoutGuide.topAnchor
+            ),
+            owner.contentScrollView.bottomAnchor.constraint(
+                equalTo: root.safeAreaLayoutGuide.bottomAnchor
+            ),
             document.leadingAnchor.constraint(
                 equalTo: owner.contentScrollView.contentView.leadingAnchor
             ),
@@ -271,9 +279,6 @@ enum PopoverLayoutBuilder {
         section.orientation = .vertical
         section.alignment = .width
         section.spacing = 6
-        for view in views {
-            view.widthAnchor.constraint(equalTo: section.widthAnchor).isActive = true
-        }
     }
 
     private static func makeRow(
