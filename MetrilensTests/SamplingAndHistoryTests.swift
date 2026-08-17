@@ -91,6 +91,46 @@ final class SamplingAndHistoryTests: XCTestCase {
         )
     }
 
+    func testMetricHistorySeriesKeepsTenMinuteChartAndSixtySecondSummary() {
+        var series = MetricHistorySeries()
+        series.append(percent: 10, at: 0)
+        series.append(percent: 20, at: 539)
+        series.append(percent: 40, at: 540)
+        series.append(percent: 80, at: 600)
+
+        XCTAssertEqual(
+            series.values(now: 600).map(\.percent),
+            [10, 20, 40, 80]
+        )
+        XCTAssertEqual(
+            series.recentSummary(now: 600),
+            MetricHistorySummary(average: 60, peak: 80)
+        )
+        XCTAssertFalse(series.isCollecting(now: 600))
+        XCTAssertEqual(
+            series.values(now: 601).map(\.percent),
+            [20, 40, 80]
+        )
+    }
+
+    func testMetricHistorySeriesRetainsBothTenMinuteBoundarySamples() {
+        var series = MetricHistorySeries()
+        for second in 0...600 {
+            series.append(percent: Double(second), at: Double(second))
+        }
+
+        let fullWindow = series.values(now: 600)
+        XCTAssertEqual(fullWindow.count, 601)
+        XCTAssertEqual(fullWindow.first?.uptime, 0)
+        XCTAssertEqual(fullWindow.last?.uptime, 600)
+
+        series.append(percent: 601, at: 601)
+        let shiftedWindow = series.values(now: 601)
+        XCTAssertEqual(shiftedWindow.count, 601)
+        XCTAssertEqual(shiftedWindow.first?.uptime, 1)
+        XCTAssertEqual(shiftedWindow.last?.uptime, 601)
+    }
+
     func testSamplingPolicyForClosedPopover() {
         let cpu = PreferencesSnapshot()
         XCTAssertEqual(

@@ -105,10 +105,10 @@ enum PopoverMetricFormatter {
         language: AppLanguage
     ) -> String {
         guard let summary else {
-            return language.localized("Average — · Peak —")
+            return language.localized("summary.unavailable")
         }
         return String(
-            format: language.localized("Average %.1f%% · Peak %.1f%%"),
+            format: language.localized("summary.available"),
             summary.average,
             summary.peak
         )

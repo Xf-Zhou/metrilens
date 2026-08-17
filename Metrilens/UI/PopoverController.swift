@@ -274,7 +274,7 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         let language = preferences.display.language
         titleLabel.stringValue = "Metrilens"
         cpuTitle.stringValue = "CPU"
-        memoryTitle.stringValue = language.localized("Metrilens Memory")
+        memoryTitle.stringValue = language.localized("Memory Usage")
         batterySectionTitle.stringValue = language.localized("Battery")
         networkSectionTitle.stringValue = language.localized("Network")
         diskSectionTitle.stringValue = language.localized("Disk")
