@@ -405,9 +405,17 @@ final class MetricSamplerTests: XCTestCase {
         var uptime: TimeInterval = 100
         let battery = FakeBatteryProvider()
         battery.sampleTemperatures = [35, 42, 38]
-        let sampled = expectation(description: "three battery samples")
-        sampled.expectedFulfillmentCount = 3
-        battery.onCurrentSample = { sampled.fulfill() }
+        let firstSample = expectation(description: "initial battery sample")
+        let secondSample = expectation(description: "second battery sample")
+        let thirdSample = expectation(description: "third battery sample")
+        battery.onCurrentSample = {
+            switch battery.currentSampleCount {
+            case 1: firstSample.fulfill()
+            case 2: secondSample.fulfill()
+            case 3: thirdSample.fulfill()
+            default: break
+            }
+        }
         let sampler = makeSampler(
             primaryMetric: .battery,
             battery: battery,
@@ -415,13 +423,13 @@ final class MetricSamplerTests: XCTestCase {
         )
 
         sampler.start()
-        sampler.waitUntilIdleForTesting()
+        wait(for: [firstSample], timeout: 1)
         uptime = 102
         sampler.powerSourceChanged()
-        sampler.waitUntilIdleForTesting()
+        wait(for: [secondSample], timeout: 1)
         uptime = 104
         sampler.powerSourceChanged()
-        wait(for: [sampled], timeout: 1)
+        wait(for: [thirdSample], timeout: 1)
         sampler.waitUntilIdleForTesting()
 
         var (snapshot, _) = sampler.debugStateForTesting()

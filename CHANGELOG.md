@@ -4,6 +4,12 @@
 
 ## [未发布]
 
+## [0.8.1] - 2026-08-17
+
+### 修复
+
+- 修复发布门禁中电池本次最高温度重置测试可能因异步采样尚未开始而超时的问题。
+
 ## [0.8.0] - 2026-08-17
 
 ### 更改
@@ -139,7 +145,8 @@
 - Metrilens 内存占用、电池当前/历史最高温度和系统热状态。
 - 1 秒、2 秒和 5 秒刷新频率，以及登录启动和菜单栏主指标设置。
 
-[未发布]: https://github.com/Xf-Zhou/metrilens/compare/v0.8.0...HEAD
+[未发布]: https://github.com/Xf-Zhou/metrilens/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/Xf-Zhou/metrilens/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Xf-Zhou/metrilens/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Xf-Zhou/metrilens/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Xf-Zhou/metrilens/compare/v0.5.0...v0.6.0
