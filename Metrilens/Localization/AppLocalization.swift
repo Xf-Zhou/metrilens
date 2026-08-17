@@ -72,6 +72,9 @@ enum AppTextCatalog {
         "batteryHealth.fair": "Fair",
         "diagnostics.privacyDisclosure": "Diagnostics include only the app version and build, macOS version, architecture, Low Power Mode, app settings, sampling state, metric state, and recent metric read errors. They do not include usernames, hostnames, serial numbers, file paths, process IDs, or network addresses.",
         "language.simplifiedChinese": "简体中文",
+        "style.deepSea": "Deep Sea Monitor",
+        "style.engineAmber": "Engine Amber",
+        "style.system": "System Native",
         "popover.updated": "Updated %@",
         "preferences.decimalPlaces": "%d decimal places",
         "preferences.seconds": "%d sec",
@@ -150,8 +153,12 @@ enum AppTextCatalog {
         "General": "通用",
         "If critical heat persists, stop and cool the Mac; contact Apple if it recurs": "若危急状态或高温持续，停止使用并冷却；仍反复出现时联系 Apple",
         "Language": "界面语言",
+        "Interface Style": "界面样式",
         "Launch at Login": "登录时启动",
         "language.simplifiedChinese": "简体中文",
+        "style.deepSea": "深海监测",
+        "style.engineAmber": "机舱琥珀",
+        "style.system": "系统原生",
         "Local Alerts": "本地提醒",
         "Local notifications are working.": "本地通知工作正常。",
         "Low Battery": "电池电量较低",
@@ -300,6 +307,17 @@ enum AppText {
             return language.localized("Single")
         case .compact:
             return language.localized("Compact")
+        }
+    }
+
+    static func interfaceStyleName(
+        _ style: InterfaceStyle,
+        language: AppLanguage
+    ) -> String {
+        switch style {
+        case .system: return language.localized("style.system")
+        case .deepSea: return language.localized("style.deepSea")
+        case .engineAmber: return language.localized("style.engineAmber")
         }
     }
 

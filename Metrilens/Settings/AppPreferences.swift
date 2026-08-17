@@ -13,6 +13,12 @@ enum StatusDisplayMode: String, CaseIterable {
     case compact
 }
 
+enum InterfaceStyle: String, CaseIterable {
+    case system
+    case deepSea
+    case engineAmber
+}
+
 enum StatusSeparator: String, CaseIterable {
     case dot
     case bar
@@ -35,6 +41,7 @@ struct DisplaySettings: Equatable {
     var statusSeparator: StatusSeparator = .dot
     var statusDecimalPlaces = 0
     var language: AppLanguage = .system
+    var interfaceStyle: InterfaceStyle = .system
 
     var displayedMetrics: [PrimaryMetric] {
         guard statusDisplayMode == .compact else { return [primaryMetric] }
@@ -147,7 +154,8 @@ final class AppPreferences {
                 metricOrder: SettingsSchema.Display.metricOrder.read(from: defaults),
                 statusSeparator: SettingsSchema.Display.separator.read(from: defaults),
                 statusDecimalPlaces: SettingsSchema.Display.decimalPlaces.read(from: defaults),
-                language: SettingsSchema.Display.language.read(from: defaults)
+                language: SettingsSchema.Display.language.read(from: defaults),
+                interfaceStyle: SettingsSchema.Display.interfaceStyle.read(from: defaults)
             ),
             sampling: SamplingSettings(
                 refreshInterval: SettingsSchema.Sampling.refreshInterval.read(from: defaults),
@@ -293,6 +301,10 @@ private enum SettingsSchema {
             allowed: AppPreferences.allowedStatusDecimalPlaces
         )
         static let language = enumSetting("language", default: AppLanguage.system)
+        static let interfaceStyle = enumSetting(
+            "interfaceStyle",
+            default: InterfaceStyle.system
+        )
 
         static let definitions = [
             primaryMetric.definition,
@@ -301,7 +313,8 @@ private enum SettingsSchema {
             metricOrder.definition,
             separator.definition,
             decimalPlaces.definition,
-            language.definition
+            language.definition,
+            interfaceStyle.definition
         ]
 
         static func write(_ value: DisplaySettings, to defaults: UserDefaults) {
@@ -312,6 +325,7 @@ private enum SettingsSchema {
             separator.write(value.statusSeparator, to: defaults)
             decimalPlaces.write(value.statusDecimalPlaces, to: defaults)
             language.write(value.language, to: defaults)
+            interfaceStyle.write(value.interfaceStyle, to: defaults)
         }
     }
 

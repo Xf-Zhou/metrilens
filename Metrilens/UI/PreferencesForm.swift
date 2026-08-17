@@ -2,6 +2,7 @@ import AppKit
 
 struct PreferencesFormActions {
     let languageChanged: Selector
+    let interfaceStyleChanged: Selector
     let displayModeChanged: Selector
     let metricChanged: Selector
     let compactMetricsChanged: Selector
@@ -29,6 +30,8 @@ struct PreferencesFormActions {
 final class PreferencesForm: NSView {
     let pageSelector = NSSegmentedControl()
     let languagePopup = NSPopUpButton()
+    let interfaceStylePopup = NSPopUpButton()
+    let interfaceStylePreview = InterfaceStylePreviewView()
     let displayModePopup = NSPopUpButton()
     let metricPopup = NSPopUpButton()
     let metricOrderPopup = NSPopUpButton()
@@ -72,6 +75,7 @@ final class PreferencesForm: NSView {
     private let alertsSectionTitle = NSTextField(labelWithString: "")
     private let systemSectionTitle = NSTextField(labelWithString: "")
     private let languageLabel = NSTextField(labelWithString: "")
+    private let interfaceStyleLabel = NSTextField(labelWithString: "")
     private let displayModeLabel = NSTextField(labelWithString: "")
     private let metricLabel = NSTextField(labelWithString: "")
     private let compactMetricsLabel = NSTextField(labelWithString: "")
@@ -115,6 +119,11 @@ final class PreferencesForm: NSView {
 
     func connect(target: AnyObject, actions: PreferencesFormActions) {
         configurePopup(languagePopup, target: target, action: actions.languageChanged)
+        configurePopup(
+            interfaceStylePopup,
+            target: target,
+            action: actions.interfaceStyleChanged
+        )
         configurePopup(displayModePopup, target: target, action: actions.displayModeChanged)
         configurePopup(metricPopup, target: target, action: actions.metricChanged)
         configurePopup(
@@ -335,6 +344,8 @@ final class PreferencesForm: NSView {
             displayPage,
             views: [
                 displaySectionTitle,
+                settingRow(interfaceStyleLabel, control: interfaceStylePopup),
+                interfaceStylePreview,
                 settingRow(displayModeLabel, control: displayModePopup),
                 settingRow(metricLabel, control: metricPopup),
                 settingRow(compactMetricsLabel, control: compactControls),
@@ -466,6 +477,7 @@ final class PreferencesForm: NSView {
         }
 
         languageLabel.stringValue = language.localized("Language")
+        interfaceStyleLabel.stringValue = language.localized("Interface Style")
         displayModeLabel.stringValue = language.localized("Display Mode")
         metricLabel.stringValue = language.localized("Single Metric")
         compactMetricsLabel.stringValue = language.localized("Compact Metrics")
@@ -492,6 +504,12 @@ final class PreferencesForm: NSView {
             in: displayModePopup,
             titles: StatusDisplayMode.allCases.map {
                 AppText.displayModeName($0, language: language)
+            }
+        )
+        replaceItems(
+            in: interfaceStylePopup,
+            titles: InterfaceStyle.allCases.map {
+                AppText.interfaceStyleName($0, language: language)
             }
         )
         replaceItems(
@@ -588,6 +606,7 @@ final class PreferencesForm: NSView {
         sourceInfo.stringValue = language.localized("preferences.sourceInformation")
 
         languagePopup.setAccessibilityLabel(languageLabel.stringValue)
+        interfaceStylePopup.setAccessibilityLabel(interfaceStyleLabel.stringValue)
         displayModePopup.setAccessibilityLabel(displayModeLabel.stringValue)
         metricPopup.setAccessibilityLabel(metricLabel.stringValue)
         intervalPopup.setAccessibilityLabel(intervalLabel.stringValue)
@@ -604,6 +623,7 @@ final class PreferencesForm: NSView {
 
         languagePopup.setAccessibilityIdentifier("metrilens.preferences.language")
         displayModePopup.setAccessibilityIdentifier("metrilens.preferences.displayMode")
+        interfaceStylePopup.setAccessibilityIdentifier("metrilens.preferences.interfaceStyle")
         resetButton.setAccessibilityIdentifier("metrilens.preferences.reset")
     }
 
@@ -615,6 +635,12 @@ final class PreferencesForm: NSView {
         languagePopup.selectItem(
             at: AppLanguage.allCases.firstIndex(of: snapshot.display.language) ?? 0
         )
+        interfaceStylePopup.selectItem(
+            at: InterfaceStyle.allCases.firstIndex(
+                of: snapshot.display.interfaceStyle
+            ) ?? 0
+        )
+        interfaceStylePreview.style = snapshot.display.interfaceStyle
         displayModePopup.selectItem(
             at: StatusDisplayMode.allCases.firstIndex(
                 of: snapshot.display.statusDisplayMode

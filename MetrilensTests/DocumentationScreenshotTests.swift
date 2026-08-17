@@ -56,34 +56,51 @@ final class DocumentationScreenshotTests: XCTestCase {
         snapshot.memoryHistoryCollecting = false
         snapshot.memoryHistorySummary = MetricHistorySummary(average: 42.4, peak: 46.1)
 
-        let controller = PopoverController(
-            preferences: PreferencesSnapshot(
-                display: DisplaySettings(language: .simplifiedChinese),
-                sampling: SamplingSettings(showsSparkline: true)
+        for (style, name) in [
+            (InterfaceStyle.system, "system"),
+            (.deepSea, "deep-sea"),
+            (.engineAmber, "engine-amber")
+        ] {
+            let controller = PopoverController(
+                preferences: PreferencesSnapshot(
+                    display: DisplaySettings(
+                        language: .simplifiedChinese,
+                        interfaceStyle: style
+                    ),
+                    sampling: SamplingSettings(showsSparkline: true)
+                )
             )
-        )
-        controller.update(snapshot: snapshot)
-        let view = try XCTUnwrap(controller.popover.contentViewController?.view)
-        view.appearance = NSAppearance(named: .aqua)
-        view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
-        view.layer?.cornerRadius = 10
-        view.frame = NSRect(origin: .zero, size: controller.popover.contentSize)
-        view.layoutSubtreeIfNeeded()
+            controller.update(snapshot: snapshot)
+            let view = try XCTUnwrap(controller.popover.contentViewController?.view)
+            view.wantsLayer = true
+            if style == .system {
+                view.appearance = NSAppearance(named: .aqua)
+                view.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+            }
+            view.layer?.cornerRadius = 10
+            view.frame = NSRect(origin: .zero, size: controller.popover.contentSize)
+            view.layoutSubtreeIfNeeded()
 
-        let representation = try XCTUnwrap(
-            view.bitmapImageRepForCachingDisplay(in: view.bounds)
-        )
-        view.cacheDisplay(in: view.bounds, to: representation)
-        let data = try XCTUnwrap(
-            representation.representation(using: .png, properties: [:])
-        )
-        XCTAssertGreaterThan(data.count, 20_000)
+            let representation = try XCTUnwrap(
+                view.bitmapImageRepForCachingDisplay(in: view.bounds)
+            )
+            view.cacheDisplay(in: view.bounds, to: representation)
+            let data = try XCTUnwrap(
+                representation.representation(using: .png, properties: [:])
+            )
+            XCTAssertGreaterThan(data.count, 20_000)
 
-        try data.write(
-            to: URL(fileURLWithPath: "/tmp/metrilens-doc-popover.png"),
-            options: .atomic
-        )
+            try data.write(
+                to: URL(fileURLWithPath: "/tmp/metrilens-popover-\(name).png"),
+                options: .atomic
+            )
+            if style == .system {
+                try data.write(
+                    to: URL(fileURLWithPath: "/tmp/metrilens-doc-popover.png"),
+                    options: .atomic
+                )
+            }
+        }
     }
 
     func testPreferencesDocumentationScreenshotsRender() throws {

@@ -121,6 +121,7 @@ final class ProductQualityTests: XCTestCase {
         defaults.set("comma", forKey: "statusSeparator")
         defaults.set(3, forKey: "statusDecimalPlaces")
         defaults.set("fr", forKey: "language")
+        defaults.set("neon", forKey: "interfaceStyle")
         defaults.set("yes", forKey: "alertsEnabled")
         defaults.set(87, forKey: "cpuAlertThreshold")
         defaults.set(true, forKey: "memoryAlertThreshold")
@@ -143,6 +144,7 @@ final class ProductQualityTests: XCTestCase {
         XCTAssertNil(persistent["statusSeparator"])
         XCTAssertNil(persistent["statusDecimalPlaces"])
         XCTAssertNil(persistent["language"])
+        XCTAssertNil(persistent["interfaceStyle"])
         XCTAssertNil(persistent["alertsEnabled"])
         XCTAssertNil(persistent["cpuAlertThreshold"])
         XCTAssertNil(persistent["memoryAlertThreshold"])
@@ -159,6 +161,7 @@ final class ProductQualityTests: XCTestCase {
             $0.statusSeparator = .bar
             $0.statusDecimalPlaces = 1
             $0.language = .english
+            $0.interfaceStyle = .deepSea
         }
         preferences.updateSampling {
             $0.refreshInterval = 5
@@ -254,6 +257,7 @@ final class ProductQualityTests: XCTestCase {
             "settings.metric_order=",
             "settings.status_separator=",
             "settings.status_decimals=",
+            "settings.interface_style=",
             "settings.refresh_seconds=",
             "settings.launch_at_login=",
             "settings.sparkline=",
@@ -350,6 +354,133 @@ final class ProductQualityTests: XCTestCase {
         controller.focusKeyboardInput()
 
         XCTAssertEqual(focusRequests, 1)
+    }
+
+    func testInterfaceStylesPersistAndApplyDistinctPalettes() {
+        let preferences = AppPreferences(defaults: defaults)
+        preferences.updateDisplay { $0.interfaceStyle = .engineAmber }
+        XCTAssertEqual(preferences.snapshot.display.interfaceStyle, .engineAmber)
+
+        let form = PreferencesForm()
+        form.render(
+            snapshot: preferences.snapshot,
+            loginItemEnabled: false,
+            notificationState: .unknown
+        )
+        XCTAssertEqual(
+            form.interfaceStylePopup.numberOfItems,
+            InterfaceStyle.allCases.count
+        )
+        XCTAssertEqual(form.interfaceStylePopup.indexOfSelectedItem, 2)
+
+        let ocean = InterfaceStylePalette(.deepSea)
+        let amber = InterfaceStylePalette(.engineAmber)
+        XCTAssertFalse(ocean.background.isEqual(amber.background))
+        XCTAssertFalse(ocean.accent.isEqual(amber.accent))
+
+        let controller = PopoverController(
+            preferences: PreferencesSnapshot(
+                display: DisplaySettings(interfaceStyle: .deepSea)
+            )
+        )
+        XCTAssertTrue(controller.cpuSparkline.accentColor.isEqual(ocean.accent))
+        XCTAssertEqual(
+            controller.popover.contentViewController?.view.appearance?.name,
+            NSAppearance.Name.darkAqua
+        )
+        XCTAssertEqual(controller.popover.appearance?.name, NSAppearance.Name.darkAqua)
+        XCTAssertEqual(controller.popover.effectiveAppearance.name, .darkAqua)
+        XCTAssertTrue(controller.usesThemedPanelForTesting())
+
+        controller.setPreferences(PreferencesSnapshot())
+        XCTAssertNil(controller.popover.appearance)
+        XCTAssertFalse(controller.usesThemedPanelForTesting())
+    }
+
+    func testInterfaceStylesPreserveUrgentHeatColor() {
+        var snapshot = SystemSnapshot.initial()
+        snapshot.thermalLevel = .critical
+
+        for style in InterfaceStyle.allCases {
+            let controller = PopoverController(
+                preferences: PreferencesSnapshot(
+                    display: DisplaySettings(interfaceStyle: style)
+                )
+            )
+            controller.update(snapshot: snapshot)
+            XCTAssertTrue(
+                controller.heatDiagnosisValue.textColor?.isEqual(NSColor.systemRed) == true,
+                "Urgent heat color was lost in \(style.rawValue)"
+            )
+        }
+    }
+
+    func testThemedPopoverClosesBeforeOpeningSettingsOrAbout() {
+        let controller = PopoverController(
+            preferences: PreferencesSnapshot(
+                display: DisplaySettings(interfaceStyle: .deepSea)
+            )
+        )
+        let button = NSStatusBarButton(frame: NSRect(x: 0, y: 0, width: 80, height: 24))
+        var visibilityChanges: [Bool] = []
+        var settingsOpenCount = 0
+        var aboutOpenCount = 0
+        controller.onVisibilityChange = { visibilityChanges.append($0) }
+        controller.onOpenPreferences = { settingsOpenCount += 1 }
+        controller.onOpenAbout = { aboutOpenCount += 1 }
+
+        controller.toggle(relativeTo: button)
+        XCTAssertTrue(controller.isShown)
+        controller.settingsButton.performClick(nil)
+        XCTAssertFalse(controller.isShown)
+        XCTAssertEqual(settingsOpenCount, 1)
+
+        controller.toggle(relativeTo: button)
+        XCTAssertTrue(controller.isShown)
+        controller.aboutButton.performClick(nil)
+        XCTAssertFalse(controller.isShown)
+        XCTAssertEqual(aboutOpenCount, 1)
+        XCTAssertEqual(visibilityChanges, [true, false, true, false])
+    }
+
+    func testVisibleThemedPopoverClosesWhenSwitchingToSystemStyle() {
+        let controller = PopoverController(
+            preferences: PreferencesSnapshot(
+                display: DisplaySettings(interfaceStyle: .deepSea)
+            )
+        )
+        let button = NSStatusBarButton(frame: NSRect(x: 0, y: 0, width: 80, height: 24))
+        var visibilityChanges: [Bool] = []
+        controller.onVisibilityChange = { visibilityChanges.append($0) }
+
+        controller.toggle(relativeTo: button)
+        XCTAssertTrue(controller.isShown)
+        controller.setPreferences(PreferencesSnapshot())
+
+        XCTAssertFalse(controller.isShown)
+        XCTAssertEqual(visibilityChanges, [true, false])
+        XCTAssertFalse(controller.usesThemedPanelForTesting())
+    }
+
+    func testThemedPopoverArrowTracksClampedMenuBarAnchor() {
+        let panelSize = NSSize(width: 360, height: 660)
+        let visibleFrame = NSRect(x: 0, y: 0, width: 1_000, height: 800)
+
+        let left = ThemedPopoverPanel.placement(
+            panelSize: panelSize,
+            anchor: NSRect(x: 10, y: 780, width: 20, height: 20),
+            visibleFrame: visibleFrame
+        )
+        XCTAssertEqual(left.origin.x, 8)
+        XCTAssertEqual(left.arrowX, 21)
+
+        let right = ThemedPopoverPanel.placement(
+            panelSize: panelSize,
+            anchor: NSRect(x: 970, y: 780, width: 20, height: 20),
+            visibleFrame: visibleFrame
+        )
+        XCTAssertEqual(right.origin.x, 632)
+        XCTAssertEqual(right.arrowX, 339)
     }
 
     func testPopoverScrollsWhenMaximumHeatDiagnosisExceedsViewport() throws {

@@ -2,6 +2,7 @@ import AppKit
 
 final class PopoverController: NSObject, NSPopoverDelegate {
     let popover = NSPopover()
+    private lazy var themedPanel = ThemedPopoverPanel()
     let cpuValue = NSTextField(labelWithString: "—")
     let cpuSummaryValue = NSTextField(labelWithString: "—")
     let memoryValue = NSTextField(labelWithString: "—")
@@ -91,26 +92,62 @@ final class PopoverController: NSObject, NSPopoverDelegate {
                 quitApplication: #selector(quitApplication)
             )
         )
+        themedPanel.onDismiss = { [weak self] in
+            self?.onVisibilityChange?(false)
+        }
         applyLocalization()
         applyDisplayPreferences()
         updateContentSize()
     }
 
-    var isShown: Bool { popover.isShown }
+    var isShown: Bool { popover.isShown || themedPanel.isVisible }
 
     func toggle(relativeTo button: NSStatusBarButton) {
-        if popover.isShown {
-            popover.performClose(nil)
-        } else {
+        if isShown {
+            dismissPresentedPopover()
+        } else if preferences.display.interfaceStyle == .system {
+            restoreNativePopoverContent()
+            updateContentSize()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            layoutContentView()
+            focusKeyboardInput()
+            onVisibilityChange?(true)
+        } else {
+            guard let view = popover.contentViewController?.view else { return }
+            let palette = InterfaceStylePalette(preferences.display.interfaceStyle)
+            themedPanel.show(
+                hosting: view,
+                bodySize: popover.contentSize,
+                color: palette.background,
+                relativeTo: button
+            )
             layoutContentView()
             focusKeyboardInput()
             onVisibilityChange?(true)
         }
     }
 
+    private func dismissPresentedPopover() {
+        if themedPanel.isVisible {
+            themedPanel.dismiss()
+        } else if popover.isShown {
+            popover.performClose(nil)
+        }
+    }
+
+    private func restoreNativePopoverContent() {
+        guard let controller = popover.contentViewController else { return }
+        themedPanel.detachHostedView()
+        popover.contentViewController = nil
+        popover.contentViewController = controller
+    }
+
     func focusKeyboardInput() {
-        keyboardFocusHandler(popover.contentViewController?.view.window)
+        keyboardFocusHandler(
+            themedPanel.isVisible
+                ? themedPanel
+                : popover.contentViewController?.view.window
+        )
     }
 
     func layoutStateForTesting() -> (
@@ -260,6 +297,12 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     }
 
     func setPreferences(_ preferences: PreferencesSnapshot) {
+        let wasSystemStyle = self.preferences.display.interfaceStyle == .system
+        let willUseSystemStyle = preferences.display.interfaceStyle == .system
+        let crossesPresentationBoundary = wasSystemStyle != willUseSystemStyle
+        if isShown && crossesPresentationBoundary {
+            dismissPresentedPopover()
+        }
         self.preferences = preferences
         applyLocalization()
         applyDisplayPreferences()
@@ -268,6 +311,10 @@ final class PopoverController: NSObject, NSPopoverDelegate {
 
     func popoverDidClose(_ notification: Notification) {
         onVisibilityChange?(false)
+    }
+
+    func usesThemedPanelForTesting() -> Bool {
+        preferences.display.interfaceStyle != .system
     }
 
     private func applyLocalization() {
@@ -346,6 +393,84 @@ final class PopoverController: NSObject, NSPopoverDelegate {
             preferences.display.metricOrder.compactMap { sections[$0] },
             in: .top
         )
+        applyInterfaceStyle()
+    }
+
+    private func applyInterfaceStyle() {
+        guard let root = popover.contentViewController?.view else { return }
+        let style = preferences.display.interfaceStyle
+        let palette = InterfaceStylePalette(style)
+        metricSectionsStack.spacing = style == .system ? 12 : 8
+        let appearance = palette.appearance.flatMap(NSAppearance.init(named:))
+        popover.appearance = appearance
+        root.appearance = appearance
+        root.wantsLayer = true
+        root.layer?.backgroundColor = style == .system
+            ? nil
+            : palette.background.cgColor
+        root.layer?.cornerRadius = style == .system ? 0 : 12
+        root.layer?.masksToBounds = style != .system
+        contentScrollView.drawsBackground = style != .system
+        contentScrollView.backgroundColor = palette.background
+
+        titleLabel.textColor = palette.primary
+        for field in [cpuTitle, memoryTitle] {
+            field.textColor = palette.primary
+        }
+        for field in [
+            batteryTitle,
+            batteryLevelTitle,
+            batteryStateTitle,
+            batteryCyclesTitle,
+            batteryHealthTitle,
+            batterySessionMaximumTitle,
+            batteryMaximumTitle,
+            networkDownloadTitle,
+            networkUploadTitle,
+            diskUsageTitle,
+            diskFreeTitle,
+            thermalTitle
+        ] {
+            field.textColor = palette.secondary
+        }
+        for field in [batterySectionTitle, networkSectionTitle, diskSectionTitle] {
+            field.textColor = style == .system ? palette.tertiary : palette.accent
+        }
+        for field in [
+            cpuSummaryValue,
+            memorySummaryValue,
+            heatDiagnosisTitle,
+            updatedValue
+        ] {
+            field.textColor = palette.secondary
+        }
+        for button in [aboutButton, settingsButton, resetSessionMaximumButton, quitButton] {
+            button.contentTintColor = style == .system ? nil : palette.accent
+        }
+        for sparkline in [cpuSparkline, memorySparkline] {
+            sparkline.accentColor = palette.accent
+            sparkline.primaryTextColor = palette.primary
+            sparkline.secondaryTextColor = palette.secondary
+            sparkline.tooltipBackgroundColor = palette.surface
+        }
+        for section in [cpuSection, memorySection, batterySection, networkSection, diskSection] {
+            section.edgeInsets = style == .system
+                ? NSEdgeInsetsZero
+                : NSEdgeInsets(top: 2, left: 8, bottom: 2, right: 8)
+            section.wantsLayer = true
+            section.layer?.cornerRadius = 6
+            section.layer?.backgroundColor = style == .system
+                ? NSColor.clear.cgColor
+                : palette.surface.withAlphaComponent(0.22).cgColor
+        }
+        applyDividerColor(palette.divider, in: root)
+    }
+
+    private func applyDividerColor(_ color: NSColor, in view: NSView) {
+        if let box = view as? NSBox, box.boxType == .separator {
+            box.borderColor = color
+        }
+        view.subviews.forEach { applyDividerColor(color, in: $0) }
     }
 
     private func updateContentSize() {
@@ -355,7 +480,10 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         )
         popover.contentSize = size
         popover.contentViewController?.preferredContentSize = size
-        popover.contentViewController?.view.frame = NSRect(origin: .zero, size: size)
+        themedPanel.update(
+            bodySize: size,
+            color: InterfaceStylePalette(preferences.display.interfaceStyle).background
+        )
         layoutContentView()
     }
 
@@ -519,12 +647,12 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     }
 
     @objc private func openPreferences() {
-        popover.performClose(nil)
+        dismissPresentedPopover()
         onOpenPreferences?()
     }
 
     @objc private func openAbout() {
-        popover.performClose(nil)
+        dismissPresentedPopover()
         onOpenAbout?()
     }
 

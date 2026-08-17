@@ -1,6 +1,10 @@
 import AppKit
 
 final class SparklineView: NSView {
+    var accentColor: NSColor = .controlAccentColor { didSet { needsDisplay = true } }
+    var primaryTextColor: NSColor = .labelColor { didSet { needsDisplay = true } }
+    var secondaryTextColor: NSColor = .secondaryLabelColor { didSet { needsDisplay = true } }
+    var tooltipBackgroundColor: NSColor = .windowBackgroundColor { didSet { needsDisplay = true } }
     var language: AppLanguage = .system {
         didSet {
             updateAccessibility()
@@ -120,7 +124,7 @@ final class SparklineView: NSView {
             index == 0 ? path.move(to: location) : path.line(to: location)
         }
 
-        NSColor.controlAccentColor.setStroke()
+        accentColor.setStroke()
         path.stroke()
     }
 
@@ -129,7 +133,7 @@ final class SparklineView: NSView {
             string: language.localized("Collecting"),
             attributes: [
                 .font: NSFont.systemFont(ofSize: 10),
-                .foregroundColor: NSColor.secondaryLabelColor
+                .foregroundColor: secondaryTextColor
             ]
         )
         let size = text.size()
@@ -153,7 +157,7 @@ final class SparklineView: NSView {
         )
         let y = plotRect.maxY - CGFloat(normalized) * max(1, plotRect.height)
 
-        NSColor.controlAccentColor.setFill()
+        accentColor.setFill()
         NSBezierPath(
             ovalIn: NSRect(x: x - 2.5, y: y - 2.5, width: 5, height: 5)
         ).fill()
@@ -162,8 +166,8 @@ final class SparklineView: NSView {
             string: String(format: "%.1f%%", point.percent),
             attributes: [
                 .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium),
-                .foregroundColor: NSColor.labelColor,
-                .backgroundColor: NSColor.windowBackgroundColor.withAlphaComponent(0.9)
+                .foregroundColor: primaryTextColor,
+                .backgroundColor: tooltipBackgroundColor.withAlphaComponent(0.9)
             ]
         )
         let size = label.size()
@@ -197,7 +201,7 @@ final class SparklineView: NSView {
                     ofSize: 10,
                     weight: .medium
                 ),
-                .foregroundColor: NSColor.secondaryLabelColor
+                .foregroundColor: secondaryTextColor
             ]
         )
         label.draw(at: NSPoint(x: bounds.minX, y: bounds.minY))
