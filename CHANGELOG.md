@@ -4,6 +4,8 @@
 
 ## [未发布]
 
+## [0.8.0] - 2026-08-17
+
 ### 更改
 
 - CPU 与内存折线改为保留最近 10 分钟；平均值、峰值和发热诊断继续使用最近 60 秒口径。
@@ -137,7 +139,8 @@
 - Metrilens 内存占用、电池当前/历史最高温度和系统热状态。
 - 1 秒、2 秒和 5 秒刷新频率，以及登录启动和菜单栏主指标设置。
 
-[未发布]: https://github.com/Xf-Zhou/metrilens/compare/v0.7.0...HEAD
+[未发布]: https://github.com/Xf-Zhou/metrilens/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Xf-Zhou/metrilens/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Xf-Zhou/metrilens/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Xf-Zhou/metrilens/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Xf-Zhou/metrilens/compare/v0.4.0...v0.5.0
