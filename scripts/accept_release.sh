@@ -55,7 +55,7 @@ checksum="$archive.sha256"
 
 if [[ -z "$source_dir" ]]; then
   gh release download "v$version" \
-    --repo Xf-Zhou/metrilens \
+    --repo zxftssr/metrilens \
     --pattern "$asset_name" \
     --pattern "$asset_name.sha256" \
     --dir "$download_dir"

@@ -233,7 +233,7 @@ class ReleaseToolsTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn('gh release download "v$version"', script)
-        self.assertIn("--repo Xf-Zhou/metrilens", script)
+        self.assertIn("--repo zxftssr/metrilens", script)
         self.assertIn('--pattern "$asset_name"', script)
         self.assertIn('--pattern "$asset_name.sha256"', script)
         self.assertNotIn("curl ", script)

@@ -35,7 +35,7 @@ Metrilens 是一个仅支持 Apple Silicon、常驻 macOS 菜单栏的轻量系�
 
 要求 macOS 13 或更高版本和 Apple Silicon Mac。
 
-1. 从 [GitHub Releases](https://github.com/Xf-Zhou/metrilens/releases) 下载 `Metrilens-vX.Y.Z-macos-arm64.zip` 与对应的 `.sha256` 文件。
+1. 从 [GitHub Releases](https://github.com/zxftssr/metrilens/releases) 下载 `Metrilens-vX.Y.Z-macos-arm64.zip` 与对应的 `.sha256` 文件。
 2. 在终端进入下载目录并校验文件：
 
    ```bash
