@@ -12,14 +12,16 @@ private enum MetricFailureSource: Hashable {
 struct MetricHistorySeries {
     static let chartWindow: TimeInterval = 10 * 60
     static let summaryWindow: TimeInterval = 60
+    private static let minimumSamplePeriod =
+        AppPreferences.allowedRefreshIntervals.min() ?? 1
 
     private var chart = MetricHistoryBuffer(
         window: chartWindow,
-        capacity: 601
+        capacity: Int(chartWindow / minimumSamplePeriod) + 1
     )
     private var summary = MetricHistoryBuffer(
         window: summaryWindow,
-        capacity: 64
+        capacity: Int(summaryWindow / minimumSamplePeriod) + 1
     )
 
     mutating func append(percent: Double, at uptime: TimeInterval) {

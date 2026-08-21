@@ -131,6 +131,23 @@ final class SamplingAndHistoryTests: XCTestCase {
         XCTAssertEqual(shiftedWindow.last?.uptime, 601)
     }
 
+    func testMetricHistorySeriesKeepsFullWindowsAtHalfSecondRefresh() {
+        var series = MetricHistorySeries()
+        for sample in 0...1_200 {
+            let uptime = Double(sample) * 0.5
+            series.append(percent: Double(sample), at: uptime)
+        }
+
+        let fullWindow = series.values(now: 600)
+        XCTAssertEqual(fullWindow.count, 1_201)
+        XCTAssertEqual(fullWindow.first?.uptime, 0)
+        XCTAssertEqual(fullWindow.last?.uptime, 600)
+        XCTAssertEqual(
+            series.recentSummary(now: 600),
+            MetricHistorySummary(average: 1_140, peak: 1_200)
+        )
+    }
+
     func testSamplingPolicyForClosedPopover() {
         let cpu = PreferencesSnapshot()
         XCTAssertEqual(
@@ -187,7 +204,7 @@ final class SamplingAndHistoryTests: XCTestCase {
                 .cpu: 5,
                 .memory: 5,
                 .battery: 120,
-                .network: 1,
+                .network: 5,
                 .disk: 120
             ]
         )
@@ -216,7 +233,54 @@ final class SamplingAndHistoryTests: XCTestCase {
 
         XCTAssertEqual(periods[.cpu], 30)
         XCTAssertEqual(periods[.memory], 30)
-        XCTAssertEqual(periods[.network], 1)
+        XCTAssertEqual(periods[.network], 30)
+    }
+
+    func testHalfSecondRefreshIsUsedOutsideLowPowerMode() {
+        let preferences = PreferencesSnapshot(
+            display: DisplaySettings(
+                statusDisplayMode: .compact,
+                compactMetrics: [.cpu, .memory, .network]
+            ),
+            sampling: SamplingSettings(refreshInterval: 0.5)
+        )
+
+        XCTAssertEqual(
+            SamplingPolicy.resolve(
+                preferences: preferences,
+                popoverVisible: false,
+                lowPower: false,
+                sleeping: false
+            ),
+            [.cpu: 0.5, .memory: 0.5, .network: 0.5]
+        )
+        XCTAssertEqual(
+            SamplingPolicy.resolve(
+                preferences: preferences,
+                popoverVisible: true,
+                lowPower: false,
+                sleeping: false
+            )[.network],
+            0.5
+        )
+        XCTAssertEqual(
+            SamplingPolicy.resolve(
+                preferences: preferences,
+                popoverVisible: false,
+                lowPower: true,
+                sleeping: false
+            ),
+            [.cpu: 5, .memory: 5, .network: 5]
+        )
+        XCTAssertEqual(
+            SamplingPolicy.resolve(
+                preferences: preferences,
+                popoverVisible: true,
+                lowPower: true,
+                sleeping: false
+            )[.network],
+            5
+        )
     }
 
     func testCompactModeSamplesEverySelectedMetric() {

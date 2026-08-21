@@ -63,6 +63,7 @@ enum DiagnosticReport {
             "settings.metric_order=\(preferences.display.metricOrder.map(\.rawValue).joined(separator: ","))",
             "settings.status_separator=\(preferences.display.statusSeparator.rawValue)",
             "settings.status_decimals=\(preferences.display.statusDecimalPlaces)",
+            "settings.network_layout=\(preferences.display.networkStatusLayout.rawValue)",
             "settings.interface_style=\(preferences.display.interfaceStyle.rawValue)",
             "settings.refresh_seconds=\(format(preferences.sampling.refreshInterval))",
             "settings.launch_at_login=\(yesNo(preferences.system.launchAtLogin))",

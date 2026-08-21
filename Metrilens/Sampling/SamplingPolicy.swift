@@ -21,9 +21,14 @@ struct SamplingPolicy {
             || (preferences.alerts.enabled
                 && (preferences.alerts.enabledKinds.contains(.batteryLevel)
                     || preferences.alerts.enabledKinds.contains(.batteryTemperature)))
-        let networkPeriod: TimeInterval = popoverVisible
-            ? 1
-            : displayedMetrics.contains(.network) ? activePeriod : 30
+        let networkPeriod: TimeInterval
+        if displayedMetrics.contains(.network) {
+            networkPeriod = activePeriod
+        } else if popoverVisible {
+            networkPeriod = lowPower ? activePeriod : min(1, activePeriod)
+        } else {
+            networkPeriod = 30
+        }
         let samplesDisk = popoverVisible
             || displayedMetrics.contains(.disk)
             || (preferences.alerts.enabled && preferences.alerts.enabledKinds.contains(.diskFree))

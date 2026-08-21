@@ -81,6 +81,7 @@ final class PreferencesController: NSWindowController {
                 metricChanged: #selector(metricChanged),
                 compactMetricsChanged: #selector(compactMetricsChanged),
                 metricOrderSelectionChanged: #selector(metricOrderSelectionChanged),
+                networkLayoutChanged: #selector(networkLayoutChanged),
                 separatorChanged: #selector(separatorChanged),
                 precisionChanged: #selector(precisionChanged),
                 intervalChanged: #selector(intervalChanged),
@@ -188,6 +189,13 @@ final class PreferencesController: NSWindowController {
         let index = max(0, form.separatorPopup.indexOfSelectedItem)
         preferences.updateDisplay {
             $0.statusSeparator = StatusSeparator.allCases[index]
+        }
+    }
+
+    @objc private func networkLayoutChanged() {
+        let index = max(0, form.networkLayoutPopup.indexOfSelectedItem)
+        preferences.updateDisplay {
+            $0.networkStatusLayout = NetworkStatusLayout.allCases[index]
         }
     }
 

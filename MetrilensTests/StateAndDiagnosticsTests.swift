@@ -336,14 +336,203 @@ final class StateAndDiagnosticsTests: XCTestCase {
             )
         }
 
+        let chinese = presentation(language: .simplifiedChinese)
+        XCTAssertEqual(chinese.title, "网络 ↓1.2K/s ↑300.0B/s")
         XCTAssertEqual(
-            presentation(language: .simplifiedChinese).title,
-            "网络 ↓1.2K/s ↑300.0B/s"
+            chinese.visualSegments,
+            [
+                .network(
+                    label: "网络",
+                    download: "↓1.2K/s",
+                    upload: "↑300.0B/s",
+                    reservedRate: "↑999.9M/s",
+                    layout: .vertical
+                )
+            ]
         )
+        let stackedWidth = StatusItemTitleRenderer.contentWidth(
+            segments: chinese.visualSegments,
+            separator: chinese.separator,
+            trailingText: chinese.trailingText
+        )
+        let horizontal = StatusItemController.presentation(
+            preferences: PreferencesSnapshot(
+                display: DisplaySettings(
+                    primaryMetric: .network,
+                    statusDecimalPlaces: 1,
+                    networkStatusLayout: .horizontal,
+                    language: .simplifiedChinese
+                )
+            ),
+            snapshot: snapshot
+        )
+        let horizontalWidth = StatusItemTitleRenderer.contentWidth(
+            segments: horizontal.visualSegments,
+            separator: "",
+            trailingText: ""
+        )
+        XCTAssertEqual(
+            horizontal.visualSegments,
+            [
+                .network(
+                    label: "网络",
+                    download: "↓1.2K/s",
+                    upload: "↑300.0B/s",
+                    reservedRate: "↑999.9M/s",
+                    layout: .horizontal
+                )
+            ]
+        )
+        XCTAssertLessThan(stackedWidth, horizontalWidth)
         XCTAssertEqual(
             presentation(language: .english).title,
             "Net ↓1.2K/s ↑300.0B/s"
         )
+
+        snapshot.cpu = .available(CPUMetric(percent: 20), stamp)
+        snapshot.disk = .available(
+            DiskCapacityMetric(
+                totalBytes: 100,
+                freeBytes: 40,
+                availableBytes: 35
+            ),
+            stamp
+        )
+        let compact = StatusItemController.presentation(
+            preferences: PreferencesSnapshot(
+                display: DisplaySettings(
+                    statusDisplayMode: .compact,
+                    compactMetrics: [.cpu, .network, .disk],
+                    language: .simplifiedChinese
+                )
+            ),
+            snapshot: snapshot
+        )
+        XCTAssertEqual(
+            compact.visualSegments,
+            [
+                .metric(label: "CPU", value: "20%", reservedValue: "100%"),
+                .network(
+                    label: "网络",
+                    download: "↓1K/s",
+                    upload: "↑300B/s",
+                    reservedRate: "↑999M/s",
+                    layout: .vertical
+                ),
+                .metric(label: "磁盘余", value: "35%", reservedValue: "100%")
+            ]
+        )
+    }
+
+    func testStatusItemWidthDoesNotChangeWhenMetricDigitsChange() {
+        let stamp = SampleStamp(wallTime: Date(), uptime: 10)
+        let preferences = PreferencesSnapshot(
+            display: DisplaySettings(
+                statusDisplayMode: .compact,
+                compactMetrics: [.cpu, .memory],
+                language: .english
+            )
+        )
+
+        func width(cpu: Double, memory: Double) -> CGFloat {
+            var snapshot = SystemSnapshot.initial()
+            snapshot.cpu = .available(CPUMetric(percent: cpu), stamp)
+            snapshot.memory = .available(
+                MemoryMetric(
+                    usedBytes: UInt64(memory),
+                    totalBytes: 100,
+                    availableBytes: UInt64(100 - memory),
+                    purgeableBytes: 0
+                ),
+                stamp
+            )
+            let presentation = StatusItemController.presentation(
+                preferences: preferences,
+                snapshot: snapshot
+            )
+            return StatusItemTitleRenderer.contentWidth(
+                segments: presentation.visualSegments,
+                separator: presentation.separator,
+                trailingText: presentation.trailingText
+            )
+        }
+
+        XCTAssertEqual(width(cpu: 9, memory: 9), width(cpu: 10, memory: 10))
+        XCTAssertEqual(width(cpu: 10, memory: 10), width(cpu: 99, memory: 99))
+    }
+
+    func testNetworkStatusItemWidthDoesNotChangeAcrossRateUnits() {
+        let stamp = SampleStamp(wallTime: Date(), uptime: 10)
+
+        func presentation(
+            rate: Double,
+            layout: NetworkStatusLayout,
+            decimalPlaces: Int = 0
+        ) -> StatusMetricPresentation {
+            var snapshot = SystemSnapshot.initial()
+            snapshot.network = .available(
+                NetworkMetric(
+                    downloadBytesPerSecond: rate,
+                    uploadBytesPerSecond: rate / 2,
+                    interfaceName: "en0"
+                ),
+                stamp
+            )
+            return StatusItemController.presentation(
+                preferences: PreferencesSnapshot(
+                    display: DisplaySettings(
+                        primaryMetric: .network,
+                        statusDecimalPlaces: decimalPlaces,
+                        networkStatusLayout: layout,
+                        language: .english
+                    )
+                ),
+                snapshot: snapshot
+            )
+        }
+
+        func width(
+            rate: Double,
+            layout: NetworkStatusLayout,
+            decimalPlaces: Int = 0
+        ) -> CGFloat {
+            let presentation = presentation(
+                rate: rate,
+                layout: layout,
+                decimalPlaces: decimalPlaces
+            )
+            return StatusItemTitleRenderer.contentWidth(
+                segments: presentation.visualSegments,
+                separator: presentation.separator,
+                trailingText: presentation.trailingText
+            )
+        }
+
+        for layout in NetworkStatusLayout.allCases {
+            XCTAssertEqual(width(rate: 9, layout: layout), width(rate: 10_000, layout: layout))
+            XCTAssertEqual(
+                width(rate: 10_000, layout: layout),
+                width(rate: 999_000_000, layout: layout)
+            )
+            XCTAssertEqual(
+                width(rate: 999.6, layout: layout),
+                width(rate: 1_000, layout: layout)
+            )
+            XCTAssertEqual(
+                width(rate: 999.96, layout: layout, decimalPlaces: 1),
+                width(rate: 1_000, layout: layout, decimalPlaces: 1)
+            )
+            XCTAssertTrue(
+                presentation(rate: 999.6, layout: layout).title.contains("↓1K/s")
+            )
+            XCTAssertTrue(
+                presentation(
+                    rate: 999.96,
+                    layout: layout,
+                    decimalPlaces: 1
+                ).title.contains("↓1.0K/s")
+            )
+        }
     }
 
     func testSparklineFindsNearestPointAcrossUnevenSamples() {

@@ -7,6 +7,7 @@ struct PreferencesFormActions {
     let metricChanged: Selector
     let compactMetricsChanged: Selector
     let metricOrderSelectionChanged: Selector
+    let networkLayoutChanged: Selector
     let separatorChanged: Selector
     let precisionChanged: Selector
     let intervalChanged: Selector
@@ -35,6 +36,7 @@ final class PreferencesForm: NSView {
     let displayModePopup = NSPopUpButton()
     let metricPopup = NSPopUpButton()
     let metricOrderPopup = NSPopUpButton()
+    let networkLayoutPopup = NSPopUpButton()
     let separatorPopup = NSPopUpButton()
     let precisionPopup = NSPopUpButton()
     let intervalPopup = NSPopUpButton()
@@ -80,6 +82,7 @@ final class PreferencesForm: NSView {
     private let metricLabel = NSTextField(labelWithString: "")
     private let compactMetricsLabel = NSTextField(labelWithString: "")
     private let metricOrderLabel = NSTextField(labelWithString: "")
+    private let networkLayoutLabel = NSTextField(labelWithString: "")
     private let separatorLabel = NSTextField(labelWithString: "")
     private let precisionLabel = NSTextField(labelWithString: "")
     private let intervalLabel = NSTextField(labelWithString: "")
@@ -130,6 +133,11 @@ final class PreferencesForm: NSView {
             metricOrderPopup,
             target: target,
             action: actions.metricOrderSelectionChanged
+        )
+        configurePopup(
+            networkLayoutPopup,
+            target: target,
+            action: actions.networkLayoutChanged
         )
         configurePopup(separatorPopup, target: target, action: actions.separatorChanged)
         configurePopup(precisionPopup, target: target, action: actions.precisionChanged)
@@ -349,6 +357,7 @@ final class PreferencesForm: NSView {
                 settingRow(displayModeLabel, control: displayModePopup),
                 settingRow(metricLabel, control: metricPopup),
                 settingRow(compactMetricsLabel, control: compactControls),
+                settingRow(networkLayoutLabel, control: networkLayoutPopup),
                 settingRow(metricOrderLabel, control: orderControls),
                 settingRow(separatorLabel, control: separatorPopup),
                 settingRow(precisionLabel, control: precisionPopup)
@@ -481,6 +490,7 @@ final class PreferencesForm: NSView {
         displayModeLabel.stringValue = language.localized("Display Mode")
         metricLabel.stringValue = language.localized("Single Metric")
         compactMetricsLabel.stringValue = language.localized("Compact Metrics")
+        networkLayoutLabel.stringValue = language.localized("Network Rate Layout")
         metricOrderLabel.stringValue = language.localized("Metric Order")
         separatorLabel.stringValue = language.localized("Separator")
         precisionLabel.stringValue = language.localized("Number Precision")
@@ -525,6 +535,13 @@ final class PreferencesForm: NSView {
             }
         )
         replaceItems(
+            in: networkLayoutPopup,
+            titles: [
+                language.localized("Horizontal"),
+                language.localized("Vertical")
+            ]
+        )
+        replaceItems(
             in: separatorPopup,
             titles: [
                 language.localized("Dot (·)"),
@@ -541,7 +558,9 @@ final class PreferencesForm: NSView {
         replaceItems(
             in: intervalPopup,
             titles: AppPreferences.allowedRefreshIntervals.map {
-                language.localized("preferences.seconds", arguments: Int($0))
+                $0 == 0.5
+                    ? language.localized("preferences.halfSecond")
+                    : language.localized("preferences.seconds", arguments: Int($0))
             }
         )
         let thresholdTitles = AppPreferences.allowedAlertThresholds.map {
@@ -609,6 +628,7 @@ final class PreferencesForm: NSView {
         interfaceStylePopup.setAccessibilityLabel(interfaceStyleLabel.stringValue)
         displayModePopup.setAccessibilityLabel(displayModeLabel.stringValue)
         metricPopup.setAccessibilityLabel(metricLabel.stringValue)
+        networkLayoutPopup.setAccessibilityLabel(networkLayoutLabel.stringValue)
         intervalPopup.setAccessibilityLabel(intervalLabel.stringValue)
         alertsCheckbox.setAccessibilityHelp(
             language.localized(
@@ -623,6 +643,7 @@ final class PreferencesForm: NSView {
 
         languagePopup.setAccessibilityIdentifier("metrilens.preferences.language")
         displayModePopup.setAccessibilityIdentifier("metrilens.preferences.displayMode")
+        networkLayoutPopup.setAccessibilityIdentifier("metrilens.preferences.networkLayout")
         interfaceStylePopup.setAccessibilityIdentifier("metrilens.preferences.interfaceStyle")
         resetButton.setAccessibilityIdentifier("metrilens.preferences.reset")
     }
@@ -648,6 +669,11 @@ final class PreferencesForm: NSView {
         )
         metricPopup.selectItem(
             at: PrimaryMetric.allCases.firstIndex(of: snapshot.display.primaryMetric) ?? 0
+        )
+        networkLayoutPopup.selectItem(
+            at: NetworkStatusLayout.allCases.firstIndex(
+                of: snapshot.display.networkStatusLayout
+            ) ?? 0
         )
         if metricOrderPopup.indexOfSelectedItem < 0 {
             metricOrderPopup.selectItem(at: 0)

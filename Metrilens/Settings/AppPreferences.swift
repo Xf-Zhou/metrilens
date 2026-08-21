@@ -13,6 +13,11 @@ enum StatusDisplayMode: String, CaseIterable {
     case compact
 }
 
+enum NetworkStatusLayout: String, CaseIterable {
+    case horizontal
+    case vertical
+}
+
 enum InterfaceStyle: String, CaseIterable {
     case system
     case deepSea
@@ -40,6 +45,7 @@ struct DisplaySettings: Equatable {
     var metricOrder: [PrimaryMetric] = PrimaryMetric.allCases
     var statusSeparator: StatusSeparator = .dot
     var statusDecimalPlaces = 0
+    var networkStatusLayout: NetworkStatusLayout = .vertical
     var language: AppLanguage = .system
     var interfaceStyle: InterfaceStyle = .system
 
@@ -121,7 +127,7 @@ struct PreferencesSnapshot: Equatable {
 }
 
 final class AppPreferences {
-    static let allowedRefreshIntervals: [TimeInterval] = [1, 2, 5, 10, 30]
+    static let allowedRefreshIntervals: [TimeInterval] = [0.5, 1, 2, 5, 10, 30]
     static let allowedAlertThresholds: [Double] = [80, 90, 95]
     static let allowedBatteryLevelThresholds: [Double] = [10, 20, 30]
     static let allowedBatteryTemperatureThresholds: [Double] = [40, 45, 50]
@@ -154,6 +160,7 @@ final class AppPreferences {
                 metricOrder: SettingsSchema.Display.metricOrder.read(from: defaults),
                 statusSeparator: SettingsSchema.Display.separator.read(from: defaults),
                 statusDecimalPlaces: SettingsSchema.Display.decimalPlaces.read(from: defaults),
+                networkStatusLayout: SettingsSchema.Display.networkLayout.read(from: defaults),
                 language: SettingsSchema.Display.language.read(from: defaults),
                 interfaceStyle: SettingsSchema.Display.interfaceStyle.read(from: defaults)
             ),
@@ -300,6 +307,10 @@ private enum SettingsSchema {
             default: 0,
             allowed: AppPreferences.allowedStatusDecimalPlaces
         )
+        static let networkLayout = enumSetting(
+            "networkStatusLayout",
+            default: NetworkStatusLayout.vertical
+        )
         static let language = enumSetting("language", default: AppLanguage.system)
         static let interfaceStyle = enumSetting(
             "interfaceStyle",
@@ -313,6 +324,7 @@ private enum SettingsSchema {
             metricOrder.definition,
             separator.definition,
             decimalPlaces.definition,
+            networkLayout.definition,
             language.definition,
             interfaceStyle.definition
         ]
@@ -324,6 +336,7 @@ private enum SettingsSchema {
             metricOrder.write(value.metricOrder, to: defaults)
             separator.write(value.statusSeparator, to: defaults)
             decimalPlaces.write(value.statusDecimalPlaces, to: defaults)
+            networkLayout.write(value.networkStatusLayout, to: defaults)
             language.write(value.language, to: defaults)
             interfaceStyle.write(value.interfaceStyle, to: defaults)
         }

@@ -120,6 +120,7 @@ final class ProductQualityTests: XCTestCase {
         defaults.set(["cpu"], forKey: "metricOrder")
         defaults.set("comma", forKey: "statusSeparator")
         defaults.set(3, forKey: "statusDecimalPlaces")
+        defaults.set("diagonal", forKey: "networkStatusLayout")
         defaults.set("fr", forKey: "language")
         defaults.set("neon", forKey: "interfaceStyle")
         defaults.set("yes", forKey: "alertsEnabled")
@@ -143,6 +144,7 @@ final class ProductQualityTests: XCTestCase {
         XCTAssertNil(persistent["metricOrder"])
         XCTAssertNil(persistent["statusSeparator"])
         XCTAssertNil(persistent["statusDecimalPlaces"])
+        XCTAssertNil(persistent["networkStatusLayout"])
         XCTAssertNil(persistent["language"])
         XCTAssertNil(persistent["interfaceStyle"])
         XCTAssertNil(persistent["alertsEnabled"])
@@ -160,6 +162,7 @@ final class ProductQualityTests: XCTestCase {
             $0.metricOrder = [.disk, .network, .battery, .memory, .cpu]
             $0.statusSeparator = .bar
             $0.statusDecimalPlaces = 1
+            $0.networkStatusLayout = .horizontal
             $0.language = .english
             $0.interfaceStyle = .deepSea
         }
@@ -186,6 +189,15 @@ final class ProductQualityTests: XCTestCase {
         )
     }
 
+    func testNetworkStatusLayoutPersistsAndDefaultsToVertical() {
+        let preferences = AppPreferences(defaults: defaults)
+        XCTAssertEqual(preferences.snapshot.display.networkStatusLayout, .vertical)
+
+        preferences.updateDisplay { $0.networkStatusLayout = .horizontal }
+
+        XCTAssertEqual(preferences.snapshot.display.networkStatusLayout, .horizontal)
+    }
+
     func testBooleanStoredAsRefreshIntervalIsRejected() {
         defaults.set(true, forKey: "refreshInterval")
 
@@ -197,12 +209,15 @@ final class ProductQualityTests: XCTestCase {
         )
     }
 
-    func testTenAndThirtySecondRefreshIntervalsAreAccepted() {
+    func testSupportedRefreshIntervalsIncludeHalfSecond() {
         let preferences = AppPreferences(defaults: defaults)
         XCTAssertEqual(
             AppPreferences.allowedRefreshIntervals,
-            [1, 2, 5, 10, 30]
+            [0.5, 1, 2, 5, 10, 30]
         )
+
+        preferences.updateSampling { $0.refreshInterval = 0.5 }
+        XCTAssertEqual(preferences.snapshot.sampling.refreshInterval, 0.5)
 
         preferences.updateSampling { $0.refreshInterval = 10 }
         XCTAssertEqual(preferences.snapshot.sampling.refreshInterval, 10)
@@ -257,6 +272,7 @@ final class ProductQualityTests: XCTestCase {
             "settings.metric_order=",
             "settings.status_separator=",
             "settings.status_decimals=",
+            "settings.network_layout=",
             "settings.interface_style=",
             "settings.refresh_seconds=",
             "settings.launch_at_login=",

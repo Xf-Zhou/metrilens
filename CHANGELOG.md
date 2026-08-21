@@ -4,6 +4,14 @@
 
 ## [未发布]
 
+## [0.9.0] - 2026-08-21
+
+### 更改
+
+- 指标刷新新增 0.5 秒档位；低电量模式仍保持原有节流策略。
+- 菜单栏以右对齐的稳定画布承载紧凑指标，数值位数变化时不再引起整体位置跳动，也不会在指标之间留下占位空白。
+- 网络下载与上传速率可在设置中切换横排或竖排；竖排减少组合模式的横向占用。
+
 ## [0.8.1] - 2026-08-17
 
 ### 修复
@@ -145,7 +153,8 @@
 - Metrilens 内存占用、电池当前/历史最高温度和系统热状态。
 - 1 秒、2 秒和 5 秒刷新频率，以及登录启动和菜单栏主指标设置。
 
-[未发布]: https://github.com/zxftssr/metrilens/compare/v0.8.1...HEAD
+[未发布]: https://github.com/zxftssr/metrilens/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/zxftssr/metrilens/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/zxftssr/metrilens/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/zxftssr/metrilens/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/zxftssr/metrilens/compare/v0.6.0...v0.7.0

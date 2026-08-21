@@ -3,6 +3,94 @@ import XCTest
 @testable import Metrilens
 
 final class DocumentationScreenshotTests: XCTestCase {
+    func testCompactStatusItemScreenshotRenders() throws {
+        let segments: [StatusVisualSegment] = [
+            .metric(label: "CPU", value: "11%", reservedValue: "100%"),
+            .metric(label: "内存", value: "77%", reservedValue: "100%"),
+            .metric(label: "电池", value: "32.0°C", reservedValue: "100.0°C"),
+            .network(
+                label: "网络",
+                download: "↓9K/s",
+                upload: "↑13K/s",
+                reservedRate: "↑999M/s",
+                layout: .vertical
+            )
+        ]
+        let image = StatusItemTitleRenderer.image(
+            segments: segments,
+            separator: " · ",
+            trailingText: "",
+            color: .labelColor
+        )
+        let imageView = NSImageView(frame: NSRect(
+            x: 7,
+            y: 2,
+            width: image.size.width,
+            height: image.size.height
+        ))
+        imageView.image = image
+        let root = NSView(
+            frame: NSRect(
+                x: 0,
+                y: 0,
+                width: ceil(image.size.width) + 14,
+                height: 24
+            )
+        )
+        root.wantsLayer = true
+        root.layer?.backgroundColor = NSColor(
+            calibratedRed: 0.65,
+            green: 0.86,
+            blue: 0.96,
+            alpha: 1
+        ).cgColor
+        root.addSubview(imageView)
+
+        let representation = try XCTUnwrap(
+            root.bitmapImageRepForCachingDisplay(in: root.bounds)
+        )
+        root.cacheDisplay(in: root.bounds, to: representation)
+        let data = try XCTUnwrap(
+            representation.representation(using: .png, properties: [:])
+        )
+        XCTAssertGreaterThan(data.count, 1_500)
+        try data.write(
+            to: URL(fileURLWithPath: "/tmp/metrilens-status-network-stacked.png"),
+            options: .atomic
+        )
+
+        let horizontalSegments = segments.dropLast() + [
+            .network(
+                label: "网络",
+                download: "↓9K/s",
+                upload: "↑13K/s",
+                reservedRate: "↑999M/s",
+                layout: .horizontal
+            )
+        ]
+        let horizontalImage = StatusItemTitleRenderer.image(
+            segments: Array(horizontalSegments),
+            separator: " · ",
+            trailingText: "",
+            color: .labelColor
+        )
+        imageView.image = horizontalImage
+        imageView.frame.size.width = horizontalImage.size.width
+        root.frame.size.width = ceil(horizontalImage.size.width) + 14
+        let horizontalRepresentation = try XCTUnwrap(
+            root.bitmapImageRepForCachingDisplay(in: root.bounds)
+        )
+        root.cacheDisplay(in: root.bounds, to: horizontalRepresentation)
+        let horizontalData = try XCTUnwrap(
+            horizontalRepresentation.representation(using: .png, properties: [:])
+        )
+        XCTAssertGreaterThan(horizontalData.count, 1_500)
+        try horizontalData.write(
+            to: URL(fileURLWithPath: "/tmp/metrilens-status-network-horizontal.png"),
+            options: .atomic
+        )
+    }
+
     func testPopoverDocumentationScreenshotRenders() throws {
         let stamp = SampleStamp(
             wallTime: Date(timeIntervalSince1970: 1_785_000_000),
