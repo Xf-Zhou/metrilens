@@ -4,6 +4,12 @@
 
 ## [未发布]
 
+## [0.9.1] - 2026-08-21
+
+### 更改
+
+- 缩小菜单栏竖排网络速率字号并收紧两行间距，减少垂直占用。
+
 ## [0.9.0] - 2026-08-21
 
 ### 更改
@@ -153,7 +159,8 @@
 - Metrilens 内存占用、电池当前/历史最高温度和系统热状态。
 - 1 秒、2 秒和 5 秒刷新频率，以及登录启动和菜单栏主指标设置。
 
-[未发布]: https://github.com/zxftssr/metrilens/compare/v0.9.0...HEAD
+[未发布]: https://github.com/zxftssr/metrilens/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/zxftssr/metrilens/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/zxftssr/metrilens/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/zxftssr/metrilens/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/zxftssr/metrilens/compare/v0.7.0...v0.8.0

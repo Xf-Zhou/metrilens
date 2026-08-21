@@ -472,12 +472,13 @@ private struct MetricSegment {
 enum StatusItemTitleRenderer {
     private static let imageHeight: CGFloat = 22
     private static let labelValueSpacing: CGFloat = 4
+    private static let stackedLineOverlap: CGFloat = 3
     private static let regularFont = NSFont.monospacedDigitSystemFont(
         ofSize: NSFont.systemFontSize,
         weight: .medium
     )
     private static let stackedFont = NSFont.monospacedDigitSystemFont(
-        ofSize: 10,
+        ofSize: 9,
         weight: .medium
     )
 
@@ -648,7 +649,7 @@ enum StatusItemTitleRenderer {
     ) {
         let topSize = textSize(top, font: stackedFont)
         let bottomSize = textSize(bottom, font: stackedFont)
-        let totalHeight = topSize.height + bottomSize.height - 1
+        let totalHeight = topSize.height + bottomSize.height - stackedLineOverlap
         let bottomY = floor((imageHeight - totalHeight) / 2)
         let textAttributes = attributes(font: stackedFont, color: color)
         bottom.draw(
@@ -656,7 +657,10 @@ enum StatusItemTitleRenderer {
             withAttributes: textAttributes
         )
         top.draw(
-            at: NSPoint(x: x + width - topSize.width, y: bottomY + bottomSize.height - 1),
+            at: NSPoint(
+                x: x + width - topSize.width,
+                y: bottomY + bottomSize.height - stackedLineOverlap
+            ),
             withAttributes: textAttributes
         )
     }
